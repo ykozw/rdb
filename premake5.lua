@@ -21,6 +21,23 @@ project "RDB Viewer"
    characterset "MBCS"
    files {
      "src/viewer.cpp",
+	 "thirdparty/imgui/examples/imgui_impl_glfw.cpp",
+	 "thirdparty/imgui/examples/imgui_impl_opengl2.cpp",
+	 "thirdparty/imgui/imgui.cpp",
+	 "thirdparty/imgui/imgui_draw.cpp",
+	 "thirdparty/imgui/imgui_widgets.cpp",
+	 "thirdparty/imgui/imgui_demo.cpp"
+   }
+   sysincludedirs{
+     "thirdparty/glfw-3.3.bin.WIN64/include",
+	 "thirdparty/imgui/",
+	 "thirdparty/imgui/examples"
+   }
+   libdirs {
+     "thirdparty/glfw-3.3.bin.WIN64/lib-vc2019"
+   }
+   links {
+     "glfw3.lib"
    }
    filter "configurations:Release"
      optimize "Speed"
