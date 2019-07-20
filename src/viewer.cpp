@@ -1,12 +1,4 @@
-﻿/*
-- window_の作成と簡単なUIを追加する
-- ラインを描画する
-- クライアントが落ちても、接続しなおすようにする
-- クライアントが落ちた時にrecvで激しく回らないようにする
-- haderonlyにする
-- glfwを配置するようにする
-  https://github.com/glfw/glfw/releases/download/3.3/glfw-3.3.bin.WIN64.zip
-*/
+﻿
 #define WIN32_LEAN_AND_MEAN
 #include <chrono>
 #include <thread>
@@ -189,43 +181,51 @@ public:
         {
             exit(1);
         }
-        puts("wait for connection");
-        struct sockaddr_in peer_name;
-        int32_t addrlen = sizeof(peer_name);
-        SOCKET sock2 = ::accept(sockd, (struct sockaddr*) & peer_name, &addrlen);
-        printf("6(%d)\n", sock2);
 
-        //
-        int32_t start = 0;
-        int32_t end = 0;
-        char data[BUFFER_SIZE];
         while (true)
         {
-            using namespace std::chrono_literals;
-            std::this_thread::sleep_for(10ms);
-
+            puts("wait for connection");
+            struct sockaddr_in peer_name;
+            int32_t addrlen = sizeof(peer_name);
+            SOCKET sock2 = ::accept(sockd, (struct sockaddr*) & peer_name, &addrlen);
+            printf("6(%d)\n", sock2);
             //
-            if (start != 0)
+            int32_t start = 0;
+            int32_t end = 0;
+            char data[BUFFER_SIZE];
+            while (true)
             {
-                size_t size = end - start;
-                memmove(data, &data[start], size);
-                start = 0;
-                end = size;
-                puts("7");
-            }
-            puts("9");
-            int r = recv(sock2, &data[end], BUFFER_SIZE - end, 0);
-            puts("10");
-            if (r > 0)
-            {
-                end += r;
-                puts("8");
+                using namespace std::chrono_literals;
+                std::this_thread::sleep_for(10ms);
+                //
+                if (start != 0)
+                {
+                    size_t size = end - start;
+                    memmove(data, &data[start], size);
+                    start = 0;
+                    end = size;
+                    puts("7");
+                }
+                puts("9");
+                int r = recv(sock2, &data[end], BUFFER_SIZE - end, 0);
+                if (r < 0)
+                {
+                    puts("disconnect");
+                    break;
+                }
+                printf("%d\n", r);
+                puts("10");
+                if (r > 0)
+                {
+                    end += r;
+                    puts("8");
 
-                // デバッグ出力
-                data[16] = '\0';
-                printf("%s", data);
-                start = 0;
-                end = 0;
+                    // デバッグ出力
+                    data[16] = '\0';
+                    printf("%s", data);
+                    start = 0;
+                    end = 0;
+                }
             }
         }
     }

@@ -1,7 +1,7 @@
 dear VDB, RDB - ray debugger- .
 
 TODOs
-- window_の作成と簡単なUIを追加する
+- データを受け取って成形する
 - ラインを描画する
 - concurrent_queを自作する
 - クライアントが落ちても、接続しなおすようにする

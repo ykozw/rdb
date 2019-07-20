@@ -5,16 +5,6 @@ solution "RDB"
    configurations { "Debug", "Release" }
    platforms {"x64"}
 
-project "RDB"
-   kind "SharedLib"
-   language "C++"
-   characterset "MBCS"
-   files {
-     "src/rdb.cpp",
-   }
-   filter "configurations:Release"
-     optimize "Speed"
-
 project "RDB Viewer"
    kind "ConsoleApp"
    language "C++"
