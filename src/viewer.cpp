@@ -23,13 +23,12 @@
 enum class RdbTaskType : int32_t
 {
     LABEL,
-    COLOR,
     POINT,
     LINE,
-    NORMAL,
     TRIANGLE,
 };
 
+//
 template<typename Type>
 struct RingBuffer
 {
@@ -104,21 +103,15 @@ public:
     int32_t group;
 };
 //
-struct RdbColor
-{
-public:
-    float r;
-    float g;
-    float b;
-    int32_t group;
-};
-//
 struct RdbPoint
 {
 public:
     float x;
     float y;
     float z;
+    float r;
+    float g;
+    float b;
     int32_t group;
 };
 struct RdbLine
@@ -129,16 +122,12 @@ struct RdbLine
     float x1;
     float y1;
     float z1;
-    int32_t group;
-};
-struct RdbNormal
-{
-    float x;
-    float y;
-    float z;
-    float nx;
-    float ny;
-    float nz;
+    float r0;
+    float g0;
+    float b0;
+    float r1;
+    float g1;
+    float b1;
     int32_t group;
 };
 struct RdbTriangle
@@ -152,6 +141,9 @@ struct RdbTriangle
     float x2;
     float y2;
     float z2;
+    float r;
+    float g;
+    float b;
     int32_t group;
 };
 
@@ -162,10 +154,8 @@ struct RdbTask
     union
     {
         RdbLabel rdbLabel;
-        RdbColor rdbColor;
         RdbPoint rdbPoint;
         RdbLine  rdbLine;
-        RdbNormal rdbNormal;
         RdbTriangle rdbTriangle;
     };
 };
@@ -224,7 +214,11 @@ public:
         Style();
 
         //
-        points_.setRingSize(128);
+        const int32_t ringSizeMaxDefault = 1024*16;
+        labels_.setRingSize(ringSizeMaxDefault);
+        points_.setRingSize(ringSizeMaxDefault);
+        lines_.setRingSize(ringSizeMaxDefault);
+        triangles_.setRingSize(ringSizeMaxDefault);
     }
     // https://github.com/ocornut/imgui/issues/707#issuecomment-468798935
     inline void Style()
@@ -328,7 +322,7 @@ public:
         window_flags |= ImGuiWindowFlags_NoResize;
         //window_flags |= ImGuiWindowFlags_NoBackground;
 
-        const int32_t guiWidth = 300;
+        const int32_t guiWidth = 400;
         ImGui::SetNextWindowPos(ImVec2(windowWidth_-guiWidth, 0.0f));
         ImGui::SetNextWindowSize(ImVec2(
             guiWidth,
@@ -338,12 +332,10 @@ public:
         {
             // -------------------------------------------------------
             ImGui::Separator();
-            ImGui::Spacing();
             ImGui::Text("Stats");
             ImGui::Text("FPS %.1f", ImGui::GetIO().Framerate);
             // -------------------------------------------------------
             ImGui::Separator();
-            ImGui::Spacing();
             ImGui::Text("Basic");
             ImGui::AlignTextToFramePadding();
             ImGui::Text("Accept ");
@@ -354,51 +346,76 @@ public:
             if (ImGui::Button("Clear"))
             {
                 labels_.clear();
-                colors_.clear();
                 points_.clear();
                 lines_.clear();
-                normals_.clear();
                 triangles_.clear();
             }
-            
             static char portNoBuffer[64] = "";
+            ImGui::AlignTextToFramePadding();
             ImGui::Text("Port   ");
             ImGui::SetNextItemWidth(120);
             ImGui::SameLine();
             ImGui::InputText("##PORT_NO", portNoBuffer, 64, ImGuiInputTextFlags_CharsDecimal);
+            //
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("Point Size  ");
+            ImGui::SetNextItemWidth(120);
+            ImGui::SameLine();
+            ImGui::SliderFloat("##POINT_SIZE", &pointSize_, 1.0f, 10.0f, "%.3f", 2.0f);
+            //
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("Line Width  ");
+            ImGui::SetNextItemWidth(120);
+            ImGui::SameLine();
+            ImGui::SliderFloat("##LINE_WIDTH", &lineWidth_, 1.0f, 10.0f, "%.3f", 2.0f);
+            
             // -------------------------------------------------------
             ImGui::Separator();
-            ImGui::Spacing();
             ImGui::Text("Filter");
-            ImGui::Text("Used | Max | Lower | Upper");
+            ImGui::Text("            Used  Max      Lower    Upper");
             
             ImGui::AlignTextToFramePadding();
-            ImGui::Text("Point    %d  %d", points_.size(), points_.ringSize());
+            ImGui::Text("Point    %8d", points_.size());
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(60);
+            int pointRingMax = points_.ringSize();
+            if (ImGui::DragInt("##POINT_RING_MAX", &pointRingMax, 16, 16, 1024*16))
+            {
+                points_.setRingSize(pointRingMax);
+            }
             ImGui::SameLine(); 
             ImGui::SetNextItemWidth(120);
             static int pointRange_[2] = { -1, -1 };
             ImGui::DragInt2("##POINT_RANGE", pointRange_, 1, -1, 255);
             //
-            static int lineRange[6] = { -1, -1, -1, -1, -1, -1 };
+            static int lineRange[2] = { -1, -1 };
             ImGui::AlignTextToFramePadding();
-            ImGui::Text("Line     %d  %d", lines_.size(), lines_.ringSize());
+            ImGui::Text("Line     %8d", lines_.size());
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(60);
+            int lineRingMax = labels_.ringSize();
+            if (ImGui::DragInt("##LINE_RING_MAX", &lineRingMax, 1, 16, 255))
+            {
+                labels_.setRingSize(lineRingMax);
+            }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120);
             ImGui::DragInt2("##LINE_RANGE", lineRange, 1, -1, 64);
             //
             static int triangleRange[2] = { -1, -1 };
             ImGui::AlignTextToFramePadding();
-            ImGui::Text("Triangle %d  %d", triangles_.size(), triangles_.ringSize());
+            ImGui::Text("Triangle %8d", triangles_.size());
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(60);
+            int triangleRingMax = triangles_.ringSize();
+            if (ImGui::DragInt("##TRIANGLE_RING_MAX", &triangleRingMax, 1, 16, 255))
+            {
+                triangles_.setRingSize(triangleRingMax);
+            }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120);
             ImGui::DragInt2("##TRIANGLE_RANGE", triangleRange, 1, -1, 255);
             //
-            static int normalRange[2] = { -1, -1 };
-            ImGui::AlignTextToFramePadding();
-            ImGui::Text("Normal   %d  %d", normals_.size(), normals_.ringSize());
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(120);
-            ImGui::DragInt2("##NORMAL_RANGE", normalRange, 1, -1, 255);
         }
         ImGui::End();
     }
@@ -406,7 +423,6 @@ public:
     //
     void drawLine()
     {
-        //
         // set up view
         glViewport(0, 0, 400, 400);
         glMatrixMode(GL_PROJECTION);
@@ -414,18 +430,31 @@ public:
         // see https://www.opengl.org/sdk/docs/man2/xhtml/glOrtho.xml
         glOrtho(0.0, 400.0, 0.0, 400.0, 0.0, 1.0); // this creates a canvas you can do 2D drawing on
         //
+        glPointSize(pointSize_);
+        glLineWidth(lineWidth_);
+        
         for (int32_t i = 0; i < points_.size(); ++i)
         {
-            const RdbPoint& point = points_[i];
-            glPointSize(1);
             glBegin(GL_POINTS); // TODO: まとめて実行する
-            glColor4f(1, 1, 1, 1);
+            const RdbPoint& point = points_[i];
+            glColor4f(point.r, point.g, point.b, 1.0f);
+            //glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
             glVertex3f(point.x, point.y, point.z);
             glEnd();
         }
 
-        glPointSize(10);
-        glLineWidth(2.5);
+        for (int32_t i = 0; i < lines_.size(); ++i)
+        {
+            glColor3f(1.0, 0.0, 0.0);
+
+            glBegin(GL_LINES); // TODO: まとめて実行する
+            const RdbLine& line = lines_[i];
+            //glColor4f(line.r0, line.g0, line.b0, 1.0f); // TODO: 線の端で違う色にする
+            glVertex3f(line.x0, line.y0, line.z0);
+            glVertex3f(line.x1, line.y1, line.z1);
+            glEnd();
+        }
+
         glColor3f(1.0, 0.0, 0.0);
         glBegin(GL_LINES);
         glVertex3f(10.0, 10.0, 0.0);
@@ -455,17 +484,11 @@ public:
                     case RdbTaskType::LABEL:
                         labels_.add(task.rdbLabel);
                         break;
-                    case RdbTaskType::COLOR:
-                        colors_.add(task.rdbColor);
-                        break;
                     case RdbTaskType::POINT:
                         points_.add(task.rdbPoint);
                         break;
                     case RdbTaskType::LINE:
                         lines_.add(task.rdbLine);
-                        break;
-                    case RdbTaskType::NORMAL:
-                        normals_.add(task.rdbNormal);
                         break;
                     case RdbTaskType::TRIANGLE:
                         triangles_.add(task.rdbTriangle);
@@ -520,13 +543,11 @@ private:
     }
 private:
     RingBuffer<RdbLabel> labels_;
-    RingBuffer<RdbColor> colors_;
     RingBuffer<RdbPoint> points_;
     RingBuffer<RdbLine> lines_;
-    RingBuffer<RdbNormal> normals_;
     RingBuffer<RdbTriangle> triangles_;
-    //
-    
+    float pointSize_ = 1.0f;
+    float lineWidth_ = 1.0f;
 };
 
 
@@ -589,8 +610,8 @@ public:
             {
                 using namespace std::chrono_literals;
                 std::this_thread::sleep_for(10ms);
-                char data[BUFFER_SIZE-1];
-                int r = recv(sock2, data, BUFFER_SIZE, 0);
+                char data[BUFFER_SIZE/16];
+                int r = recv(sock2, data, sizeof(data)-1, 0);
                 if (r < 0)
                 {
                     puts("disconnect");
@@ -601,21 +622,43 @@ public:
                 {
                     //
                     dataLen += r;
-                    data[dataLen] = '\0';
-                    strcat(datum_, data);
-
-                    // "\n"まで言っているか確認
-                    if (datum_[dataLen - 1] == '\n')
+                    // あふれる場合はすべてリセット
+                    if (sizeof(datum_) <= dataLen)
                     {
-                        puts("------------------");
-                        const char* token = strtok(datum_, "\n");
-                        processToken(token);
-                        while (const char* token = strtok(nullptr, "\n"))
-                        {
-                            processToken(token);
-                        }
                         dataLen = 0;
                         datum_[0] = '\0';
+                        puts("OUT");
+                    }
+                    else
+                    {
+                        data[dataLen] = '\0';
+                        strcat(datum_, data);
+
+                        // "\n"が入っていたら分割フェイズ
+                        if (strchr(datum_, '\n') != nullptr)
+                        {
+                            // TODO: 最後のに\nが入っていることを確認しないといけない
+                            const char* token = strtok(datum_, "\n");
+                            processToken(token);
+                            const char* lastToken = nullptr;
+                            while (token = strtok(nullptr, "\n"))
+                            {
+                                lastToken = token;
+                                processToken(token);
+                            }
+                            //// 最後の要素に\nがなければ次回に回す
+                            //if (strchr(lastToken, '\n') == nullptr)
+                            //{
+                            //    dataLen = strlen(lastToken);
+                            //    memmove(datum_, lastToken, strlen(lastToken)+1);
+                            //}
+                            //else
+                            {
+                                dataLen = 0;
+                                datum_[0] = '\0';
+                            }
+                            
+                        }
                     }
                 }
             }
@@ -623,14 +666,13 @@ public:
     }
     void processToken(const char* token)
     {
-        int32_t group;
         RdbTask task;
-        
         switch (token[0])
         {
         case 'E':
         {
             char label[0xff];
+            int32_t group;
             if (sscanf(token, "E %s,%d\n", label, &group) == 2)
             {
                 printf("LABEL %s\n", label);
@@ -640,6 +682,7 @@ public:
         case 'C':
         {
             float r, g, b;
+            int32_t group;
             if(sscanf(token, "C %f,%f,%f,%d\n", &r, &g, &b, &group) == 4)
             {
                 printf("COLOR %f,%f,%f\n", r, g, b);
@@ -648,45 +691,41 @@ public:
         break;
         case 'P':
         {
-            //float x, y, z;
             task.type = RdbTaskType::POINT;
             auto& t = task.rdbPoint;
-            if (sscanf(token, "P %f,%f,%f,%d\n", &t.x, &t.y, &t.z, &t.group) == 4)
+            if (sscanf(token, "P %f,%f,%f,%f,%f,%f,%d\n",
+                &t.x, &t.y, &t.z, &t.r, &t.g, &t.b ,&t.group) == 7)
             {
                 g_rdbTasks.push(task);
-                //printf("POINT %f,%f,%f\n", x, y, z);
             }
         }
         break;
         case 'L':
         {
-            float x0, y0, z0, x1, y1, z1;
-            if (sscanf(token, "L %f,%f,%f,%f,%f,%f,%d\n",
-                &x0, &y0, &z0,
-                &x1, &y1, &z1, &group) == 7)
+            task.type = RdbTaskType::LINE;
+            auto& t = task.rdbLine;
+            if (sscanf(token, "L %f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
+                &t.x0, &t.y0, &t.z0,
+                &t.x1, &t.y1, &t.z1,
+                &t.r0, &t.g0, &t.b0,
+                &t.r1, &t.g1, &t.b1,
+                &t.group) == 13)
             {
-                printf("LINE (%f,%f,%f) (%f,%f,%f)\n", x0, y0, z0, x1, y1, z1 );
+                g_rdbTasks.push(task);
             }
 
-        }
-        break;
-        case 'N':
-        {
-            float x, y, z, nx, ny, nz;
-            if( sscanf(token, "N %f,%f,%f,%f,%f,%f,%d\n",
-                &x, &y, &z, &nx, &ny, &nz, &group) == 7)
-            {
-                printf("NORM (%f,%f,%f) (%f,%f,%f)\n", x, y, z, nx, ny, nz);
-            }
         }
         break;
         case 'T':
         {
             float x0, y0, z0, x1, y1, z1, x2, y2, z2;
+            float r, g, b;
+            int32_t group;
             if (sscanf(token, "T %f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
                 &x0, &y0, &z0,
                 &x1, &y1, &z1,
                 &x2, &y2, &z2,
+                &r, &g, &b,
                 &group) == 10)
             {
                 printf("TRI (%f,%f,%f) (%f,%f,%f) (%f,%f,%f)\n",

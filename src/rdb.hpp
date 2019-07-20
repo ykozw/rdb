@@ -3,24 +3,18 @@
 
 #include <cstdint>
 //
-void rdb_max_buffer(int32_t maxBuffeInBytes);
-void rdbLabel(const char* label, int32_t group = 0);
-void rdbColor(float r, float g, float b, int32_t group = 0);
-void rdbPoint(float x, float y, float z, int32_t group = 0);
+void rdbLabel(
+    const char* label, int32_t group = 0);
+void rdbPoint(
+    float x, float y, float z, 
+    float r = 1.0f, float g = 1.0f, float b = 1.0f,
+    int32_t group = 0);
 void rdbLine(
     float x0, float y0, float z0,
     float x1, float y1, float z1,
+    float r0 = 1.0f, float g0 = 1.0f, float b0 = 1.0f,
+    float r1 = 1.0f, float g1 = 1.0f, float b1 = 1.0f,
     int32_t group = 0);
-void rdbNormal(
-    float x, float y, float z,
-    float nx, float ny, float nz,
-    int32_t group = 0);
-void rdbTriangle(
-    float x0, float y0, float z0,
-    float x1, float y1, float z1,
-    float x2, float y2, float z2,
-    int32_t group = 0);
-
 
 #if defined(RDB_IMPLIMATATION)
 //
@@ -30,14 +24,14 @@ void rdbTriangle(
 //
 #include <thread>
 #include <mutex>
+#include <unordered_map>
+#include <array>
 //
 enum class RdbTaskType : int32_t
 {
     LABEL,
-    COLOR,
     POINT,
     LINE,
-    NORMAL,
     TRIANGLE,
 };
 //
@@ -53,16 +47,12 @@ struct RdbTask
         }rdbLabel;
         struct
         {
-            float r;
-            float g;
-            float b;
-            int32_t group;
-        }rdbColor;
-        struct
-        {
             float x;
             float y;
             float z;
+            float r;
+            float g;
+            float b;
             int32_t group;
         }rdbPoint;
         struct
@@ -73,18 +63,14 @@ struct RdbTask
             float x1;
             float y1;
             float z1;
+            float r0;
+            float g0;
+            float b0;
+            float r1;
+            float g1;
+            float b1;
             int32_t group;
         }rdbLine;
-        struct
-        {
-            float x;
-            float y;
-            float z;
-            float nx;
-            float ny;
-            float nz;
-            int32_t group;
-        }rdbNormal;
         struct
         {
             float x0;
@@ -96,6 +82,9 @@ struct RdbTask
             float x2;
             float y2;
             float z2;
+            float r;
+            float g;
+            float b;
             int32_t group;
         }rdbTriangle;
     };
@@ -136,7 +125,7 @@ void rdb_printf(const char* fmt, ...)
     size_t sended = ::send(rdbContext.fd, buffer, bytesToSend, 0);
     // TODO: -1が帰ったらもう何も送らない状態にする
     //
-    printf("%s,[%d]", buffer, sended);
+    //printf("%s,[%d]", buffer, sended);
 }
 
 //
@@ -161,33 +150,21 @@ void rdbMain()
                 rdb_printf("E %s,%d\n", t.label, t.group);
             }
             break;
-            case RdbTaskType::COLOR:
-            {
-                const auto& t = task.rdbColor;
-                rdb_printf("C %f,%f,%f,%d\n", t.r, t.g, t.b, t.group);
-            }
-            break;
             case RdbTaskType::POINT:
             {
                 const auto& t = task.rdbPoint;
-                rdb_printf("P %f,%f,%f,%d\n", t.x, t.y, t.z, t.group);
+                rdb_printf("P %f,%f,%f,%f,%f,%f,%d\n",
+                    t.x, t.y, t.z, t.r, t.g, t.b, t.group);
             }
             break;
             case RdbTaskType::LINE:
             {
                 const auto& t = task.rdbLine;
-                rdb_printf("L %f,%f,%f,%f,%f,%f,%d\n",
+                rdb_printf("L %f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
                     t.x0, t.y0, t.z0,
                     t.x1, t.y1, t.z1,
-                    t.group);
-            }
-            break;
-            case RdbTaskType::NORMAL:
-            {
-                const auto& t = task.rdbNormal;
-                rdb_printf("N %f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
-                    t.x, t.y, t.z,
-                    t.nx, t.ny, t.nz,
+                    t.r0, t.g0, t.b0,
+                    t.r1, t.g1, t.b1,
                     t.group);
             }
             break;
@@ -198,6 +175,7 @@ void rdbMain()
                     t.x0, t.y0, t.z0,
                     t.x1, t.y1, t.z1,
                     t.x2, t.y2, t.z2,
+                    t.r, t.g, t.b,
                     t.group);
             }
             break;
@@ -243,25 +221,19 @@ void rdbLabel(const char* label, int32_t group)
     rdbTasks.push(task);
 }
 //
-void rdbColor(float r, float g, float b, int32_t group)
-{
-    rdbInitCheck();
-    RdbTask task;
-    task.rdbColor.r = r;
-    task.rdbColor.g = g;
-    task.rdbColor.b = b;
-    task.rdbColor.group = group;
-    task.type = RdbTaskType::COLOR;
-    rdbTasks.push(task);
-}
-//
-void rdbPoint(float x, float y, float z, int32_t group)
+void rdbPoint(
+    float x, float y, float z,
+    float r, float g, float b,
+    int32_t group)
 {
     rdbInitCheck();
     RdbTask task;
     task.rdbPoint.x = x;
     task.rdbPoint.y = y;
     task.rdbPoint.z = z;
+    task.rdbPoint.r = r;
+    task.rdbPoint.g = g;
+    task.rdbPoint.b = b;
     task.rdbPoint.group = group;
     task.type = RdbTaskType::POINT;
     rdbTasks.push(task);
@@ -270,38 +242,19 @@ void rdbPoint(float x, float y, float z, int32_t group)
 void rdbLine(
     float x0, float y0, float z0, 
     float x1, float y1, float z1,
+    float r0, float g0, float b0,
+    float r1, float g1, float b1,
     int32_t group )
 {
     rdbInitCheck();
     RdbTask task;
     auto& t = task.rdbLine;
-    t.x0 = x0;
-    t.y0 = y0;
-    t.z0 = z0;
-    t.x1 = x1;
-    t.y1 = y1;
-    t.z1 = z1;
+    t.x0 = x0; t.y0 = y0; t.z0 = z0;
+    t.x1 = x1; t.y1 = y1; t.z1 = z1;
+    t.r0 = r0; t.g0 = g0; t.b0 = b0;
+    t.r1 = r1; t.g1 = g1; t.b1 = b1;
     t.group = group;
     task.type = RdbTaskType::LINE;
-    rdbTasks.push(task);
-}
-//
-void rdbNormal(
-    float x, float y, float z,
-    float nx, float ny, float nz,
-    int32_t group)
-{
-    rdbInitCheck();
-    RdbTask task;
-    auto& t = task.rdbNormal;
-    t.x = x;
-    t.y = y;
-    t.z = z;
-    t.nx = nx;
-    t.ny = ny;
-    t.nz = nz;
-    t.group = group;
-    task.type = RdbTaskType::NORMAL;
     rdbTasks.push(task);
 }
 //
@@ -309,6 +262,7 @@ void rdbTriangle(
     float x0, float y0, float z0,
     float x1, float y1, float z1,
     float x2, float y2, float z2,
+    float r, float g, float b,
     int32_t group)
 {
     rdbInitCheck();
@@ -323,6 +277,9 @@ void rdbTriangle(
     t.x2 = x2;
     t.y2 = y2;
     t.z2 = z2;
+    t.r = r;
+    t.g = g;
+    t.b = b;
     t.group = group;
     task.type = RdbTaskType::TRIANGLE;
     rdbTasks.push(task);
