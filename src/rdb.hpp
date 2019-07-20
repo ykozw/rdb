@@ -1,4 +1,4 @@
-#ifndef _RDB_H_
+Ôªø#ifndef _RDB_H_
 #define _RDB_H_
 
 #include <cstdint>
@@ -134,8 +134,9 @@ void rdb_printf(const char* fmt, ...)
     va_end(argp);
     //
     size_t sended = ::send(rdbContext.fd, buffer, bytesToSend, 0);
+    // TODO: -1„ÅåÂ∏∞„Å£„Åü„Çâ„ÇÇ„ÅÜ‰Ωï„ÇÇÈÄÅ„Çâ„Å™„ÅÑÁä∂ÊÖã„Å´„Åô„Çã
     //
-    puts(buffer);
+    printf("%s,[%d]", buffer, sended);
 }
 
 //
@@ -157,25 +158,25 @@ void rdbMain()
             case RdbTaskType::LABEL:
             {
                 const auto& t = task.rdbLabel;
-                rdb_printf("E %s", t.label, t.group);
+                rdb_printf("E %s,%d\n", t.label, t.group);
             }
             break;
             case RdbTaskType::COLOR:
             {
                 const auto& t = task.rdbColor;
-                rdb_printf("C %f,%f,%f,%d", t.r, t.g, t.b, t.group);
+                rdb_printf("C %f,%f,%f,%d\n", t.r, t.g, t.b, t.group);
             }
             break;
             case RdbTaskType::POINT:
             {
                 const auto& t = task.rdbPoint;
-                rdb_printf("P %f,%f,%f,%d", t.x, t.y, t.z, t.group);
+                rdb_printf("P %f,%f,%f,%d\n", t.x, t.y, t.z, t.group);
             }
             break;
             case RdbTaskType::LINE:
             {
                 const auto& t = task.rdbLine;
-                rdb_printf("L %f,%f,%f,%f,%f,%f,%d",
+                rdb_printf("L %f,%f,%f,%f,%f,%f,%d\n",
                     t.x0, t.y0, t.z0,
                     t.x1, t.y1, t.z1,
                     t.group);
@@ -184,7 +185,7 @@ void rdbMain()
             case RdbTaskType::NORMAL:
             {
                 const auto& t = task.rdbNormal;
-                rdb_printf("N %f,%f,%f,%f,%f,%f,%f,%f,%f,%d",
+                rdb_printf("N %f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
                     t.x, t.y, t.z,
                     t.nx, t.ny, t.nz,
                     t.group);
@@ -193,7 +194,7 @@ void rdbMain()
             case RdbTaskType::TRIANGLE:
             {
                 const auto& t = task.rdbTriangle;
-                rdb_printf("T %f,%f,%f,%f,%f,%f,%f,%f,%f,%d",
+                rdb_printf("T %f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
                     t.x0, t.y0, t.z0,
                     t.x1, t.y1, t.z1,
                     t.x2, t.y2, t.z2,
@@ -216,7 +217,7 @@ void rdbInitCheck()
     std::call_once(rdbContext.initialized, []()
         {
             WSADATA wsaData;
-            WSAStartup(MAKEWORD(2, 2), &wsaData); // TODO: ÉGÉâÅ[èàóù
+            WSAStartup(MAKEWORD(2, 2), &wsaData); // TODO: „Ç®„É©„ÉºÂá¶ÁêÜ
             rdbContext.fd = socket(AF_INET, SOCK_STREAM, 0);
             //
             struct sockaddr_in serv_name;
@@ -224,7 +225,7 @@ void rdbInitCheck()
             serv_name.sin_addr.s_addr = ::htonl(0x7F000001L);
             serv_name.sin_port = ::htons(10000);
             ::connect(rdbContext.fd, (struct sockaddr*) & serv_name, sizeof(serv_name));
-            ::atexit(rdbExit); // TODO: ïÅí Ç…ÉOÉçÅ[ÉoÉãâï˙Ç≈égÇ§ÇÊÇ§Ç…Ç∑ÇÈ
+            ::atexit(rdbExit); // TODO: ÊôÆÈÄö„Å´„Ç∞„É≠„Éº„Éê„É´Ëß£Êîæ„Åß‰Ωø„ÅÜ„Çà„ÅÜ„Å´„Åô„Çã
 
             //
             rdbMainThread = std::thread([]() {rdbMain(); });

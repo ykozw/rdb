@@ -1,7 +1,5 @@
 ﻿
 #define WIN32_LEAN_AND_MEAN
-#include <chrono>
-#include <thread>
 //
 #include <glfw/glfw3.h>
 #include <imgui.h>
@@ -15,7 +13,84 @@
 #include <concurrent_queue.h>
 #pragma comment(lib, "Ws2_32.lib")
 //
+#include <chrono>
+#include <thread>
+#include <vector>
+#include <array>
+//
 #define BUFFER_SIZE (64 * 1024)
+
+enum class RdbTaskType : int32_t
+{
+    LABEL,
+    COLOR,
+    POINT,
+    LINE,
+    NORMAL,
+    TRIANGLE,
+};
+//
+struct RdbTask
+{
+    RdbTaskType type;
+    union
+    {
+        struct
+        {
+            const char* label;
+            int32_t group;
+        }rdbLabel;
+        struct
+        {
+            float r;
+            float g;
+            float b;
+            int32_t group;
+        }rdbColor;
+        struct
+        {
+            float x;
+            float y;
+            float z;
+            int32_t group;
+        }rdbPoint;
+        struct
+        {
+            float x0;
+            float y0;
+            float z0;
+            float x1;
+            float y1;
+            float z1;
+            int32_t group;
+        }rdbLine;
+        struct
+        {
+            float x;
+            float y;
+            float z;
+            float nx;
+            float ny;
+            float nz;
+            int32_t group;
+        }rdbNormal;
+        struct
+        {
+            float x0;
+            float y0;
+            float z0;
+            float x1;
+            float y1;
+            float z1;
+            float x2;
+            float y2;
+            float z2;
+            int32_t group;
+        }rdbTriangle;
+    };
+};
+Concurrency::concurrent_queue<RdbTask> g_rdbTasks;
+//
 
 class Window
 {
@@ -50,7 +125,7 @@ public:
         ImGui_ImplOpenGL2_Init();
     }
     //
-    void drawLine()
+    void drawLine(const std::vector<RdbTask>& tasks)
     {
         //
         // set up view
@@ -60,6 +135,26 @@ public:
         // see https://www.opengl.org/sdk/docs/man2/xhtml/glOrtho.xml
         glOrtho(0.0, 400.0, 0.0, 400.0, 0.0, 1.0); // this creates a canvas you can do 2D drawing on
         //
+        for (const RdbTask& task : tasks)
+        {
+            switch (task.type)
+            {
+            case RdbTaskType::LABEL:
+                break;
+            case RdbTaskType::POINT:
+            {
+                auto& t = task.rdbPoint;
+                glPointSize(1);
+                glBegin(GL_POINTS); // TODO: まとめて実行する
+                glColor4f(1, 1, 1, 1);
+                glVertex3f(t.x, t.y, t.z);
+                glEnd();
+            }
+            break;
+            }
+        }
+
+
         glPointSize(10);
         glLineWidth(2.5);
         glColor3f(1.0, 0.0, 0.0);
@@ -74,9 +169,23 @@ public:
         bool show_demo_window = true;
         bool show_another_window = false;
         ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+        // TODO: リングバッファーにする
+        std::vector<RdbTask> tasks;
         // Main loop
         while (!glfwWindowShouldClose(window_))
         {
+
+            // 全ての積まれているタスクを描画に変換する
+            while (!g_rdbTasks.empty())
+            {
+                RdbTask task;
+                if (g_rdbTasks.try_pop(task))
+                {
+                    tasks.push_back(task);
+                }
+            }
+
+
             // Poll and handle events (inputs, window_ resize, etc.)
             // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
             // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application.
@@ -146,7 +255,7 @@ public:
             ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
             //glUseProgram(last_program);
             //
-            drawLine();
+            drawLine(tasks);
 
             glfwMakeContextCurrent(window_);
             glfwSwapBuffers(window_);
@@ -159,9 +268,12 @@ private:
     }
 };
 
+
+
 class Socket
 {
     std::thread threawd_;
+    char datum_[BUFFER_SIZE] = {'\0'};
 public:
     void init()
     {
@@ -169,13 +281,11 @@ public:
     }
     void socketMain()
     {
-        puts("0");
         WSADATA wsaData;
         if (WSAStartup(MAKEWORD(2, 2), &wsaData))
         {
             exit(1);
         }
-        puts("1");
         SOCKET sockd = ::socket(AF_INET, SOCK_STREAM, 0);
         //avoid address in use error that occur if we quit with a client connected
         int t = 1;
@@ -184,7 +294,6 @@ public:
         {
             exit(1);
         }
-        puts("2");
         struct sockaddr_in name;
         name.sin_family = AF_INET;
         name.sin_addr.s_addr = INADDR_ANY;
@@ -196,12 +305,10 @@ public:
         }
 
         status = bind(sockd, (struct sockaddr*) & name, sizeof(name));
-        puts("3");
         if (status == -1)
         {
             exit(1);
         }
-        puts("4");
         status = ::listen(sockd, 5);
         if (status == -1)
         {
@@ -214,45 +321,118 @@ public:
             struct sockaddr_in peer_name;
             int32_t addrlen = sizeof(peer_name);
             SOCKET sock2 = ::accept(sockd, (struct sockaddr*) & peer_name, &addrlen);
-            printf("6(%d)\n", sock2);
+            puts("connected");
             //
-            int32_t start = 0;
-            int32_t end = 0;
-            char data[BUFFER_SIZE];
+            size_t dataLen = 0;
             while (true)
             {
                 using namespace std::chrono_literals;
                 std::this_thread::sleep_for(10ms);
-                //
-                if (start != 0)
-                {
-                    size_t size = end - start;
-                    memmove(data, &data[start], size);
-                    start = 0;
-                    end = size;
-                    puts("7");
-                }
-                puts("9");
-                int r = recv(sock2, &data[end], BUFFER_SIZE - end, 0);
+                char data[BUFFER_SIZE];
+                int r = recv(sock2, data, BUFFER_SIZE, 0);
                 if (r < 0)
                 {
                     puts("disconnect");
                     break;
                 }
-                printf("%d\n", r);
-                puts("10");
+                
                 if (r > 0)
                 {
-                    end += r;
-                    puts("8");
+                    //
+                    dataLen += r;
+                    data[dataLen] = '\0';
+                    strcat(datum_, data);
 
-                    // デバッグ出力
-                    data[16] = '\0';
-                    printf("%s", data);
-                    start = 0;
-                    end = 0;
+                    // "\n"まで言っているか確認
+                    if (datum_[dataLen - 1] == '\n')
+                    {
+                        puts("------------------");
+                        const char* token = strtok(datum_, "\n");
+                        processToken(token);
+                        while (const char* token = strtok(nullptr, "\n"))
+                        {
+                            processToken(token);
+                        }
+                        dataLen = 0;
+                        datum_[0] = '\0';
+                    }
                 }
             }
+        }
+    }
+    void processToken(const char* token)
+    {
+        int32_t group;
+        RdbTask task;
+        
+        switch (token[0])
+        {
+        case 'E':
+        {
+            char label[0xff];
+            if (sscanf(token, "E %s,%d\n", label, &group) == 2)
+            {
+                printf("LABEL %s\n", label);
+            }
+        }
+        break;
+        case 'C':
+        {
+            float r, g, b;
+            if(sscanf(token, "C %f,%f,%f,%d\n", &r, &g, &b, &group) == 4)
+            {
+                printf("COLOR %f,%f,%f\n", r, g, b);
+            }
+        }
+        break;
+        case 'P':
+        {
+            //float x, y, z;
+            task.type = RdbTaskType::POINT;
+            auto& t = task.rdbPoint;
+            if (sscanf(token, "P %f,%f,%f,%d\n", &t.x, &t.y, &t.z, &t.group) == 4)
+            {
+                g_rdbTasks.push(task);
+                //printf("POINT %f,%f,%f\n", x, y, z);
+            }
+        }
+        break;
+        case 'L':
+        {
+            float x0, y0, z0, x1, y1, z1;
+            if (sscanf(token, "L %f,%f,%f,%f,%f,%f,%d\n",
+                &x0, &y0, &z0,
+                &x1, &y1, &z1, &group) == 7)
+            {
+                printf("LINE (%f,%f,%f) (%f,%f,%f)\n", x0, y0, z0, x1, y1, z1 );
+            }
+
+        }
+        break;
+        case 'N':
+        {
+            float x, y, z, nx, ny, nz;
+            if( sscanf(token, "N %f,%f,%f,%f,%f,%f,%d\n",
+                &x, &y, &z, &nx, &ny, &nz, &group) == 7)
+            {
+                printf("NORM (%f,%f,%f) (%f,%f,%f)\n", x, y, z, nx, ny, nz);
+            }
+        }
+        break;
+        case 'T':
+        {
+            float x0, y0, z0, x1, y1, z1, x2, y2, z2;
+            if (sscanf(token, "T %f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
+                &x0, &y0, &z0,
+                &x1, &y1, &z1,
+                &x2, &y2, &z2,
+                &group) == 10)
+            {
+                printf("TRI (%f,%f,%f) (%f,%f,%f) (%f,%f,%f)\n",
+                    x0, y0, z0, x1, y1, z1, x2, y2, z2);
+            }
+        }
+        break;
         }
     }
 };
