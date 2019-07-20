@@ -4,18 +4,18 @@
 #include <cstdint>
 //
 void rdb_max_buffer(int32_t maxBuffeInBytes);
-void rdb_label(const char* label, int32_t group = 0);
-void rdb_color(float r, float g, float b, int32_t group = 0);
-void rdb_point(float x, float y, float z, int32_t group = 0);
-void rdb_line(
+void rdbLabel(const char* label, int32_t group = 0);
+void rdbColor(float r, float g, float b, int32_t group = 0);
+void rdbPoint(float x, float y, float z, int32_t group = 0);
+void rdbLine(
     float x0, float y0, float z0,
     float x1, float y1, float z1,
     int32_t group = 0);
-void rdb_normal(
+void rdbNormal(
     float x, float y, float z,
     float nx, float ny, float nz,
     int32_t group = 0);
-void rdb_triangle(
+void rdbTriangle(
     float x0, float y0, float z0,
     float x1, float y1, float z1,
     float x2, float y2, float z2,
@@ -116,7 +116,7 @@ public:
 std::thread rdbMainThread;
 
 //
-void rdbInit();
+void rdbInitCheck();
 void rdb_printf(const char* fmt, ...);
 void rdbMain();
 void rdbExit();
@@ -125,7 +125,7 @@ void rdbExit();
 void rdb_printf(const char* fmt, ...)
 {
     //
-    rdbInit();
+    rdbInitCheck();
     //
     char buffer[RDB_BUFFER_SIZE];
     va_list argp;
@@ -211,7 +211,7 @@ void rdbExit()
     ::closesocket(rdbContext.fd);
 }
 //
-void rdbInit()
+void rdbInitCheck()
 {
     std::call_once(rdbContext.initialized, []()
         {
@@ -232,9 +232,9 @@ void rdbInit()
 }
 
 //
-void rdb_label(const char* label, int32_t group)
+void rdbLabel(const char* label, int32_t group)
 {
-    rdbInit();
+    rdbInitCheck();
     RdbTask task;
     task.rdbLabel.label = label;
     task.rdbLabel.group = group;
@@ -242,9 +242,9 @@ void rdb_label(const char* label, int32_t group)
     rdbTasks.push(task);
 }
 //
-void rdb_color(float r, float g, float b, int32_t group)
+void rdbColor(float r, float g, float b, int32_t group)
 {
-    rdbInit();
+    rdbInitCheck();
     RdbTask task;
     task.rdbColor.r = r;
     task.rdbColor.g = g;
@@ -254,9 +254,9 @@ void rdb_color(float r, float g, float b, int32_t group)
     rdbTasks.push(task);
 }
 //
-void rdb_point(float x, float y, float z, int32_t group)
+void rdbPoint(float x, float y, float z, int32_t group)
 {
-    rdbInit();
+    rdbInitCheck();
     RdbTask task;
     task.rdbPoint.x = x;
     task.rdbPoint.y = y;
@@ -266,12 +266,12 @@ void rdb_point(float x, float y, float z, int32_t group)
     rdbTasks.push(task);
 }
 //
-void rdb_line(
+void rdbLine(
     float x0, float y0, float z0, 
     float x1, float y1, float z1,
     int32_t group )
 {
-    rdbInit();
+    rdbInitCheck();
     RdbTask task;
     auto& t = task.rdbLine;
     t.x0 = x0;
@@ -285,12 +285,12 @@ void rdb_line(
     rdbTasks.push(task);
 }
 //
-void rdb_normal(
+void rdbNormal(
     float x, float y, float z,
     float nx, float ny, float nz,
     int32_t group)
 {
-    rdbInit();
+    rdbInitCheck();
     RdbTask task;
     auto& t = task.rdbNormal;
     t.x = x;
@@ -304,13 +304,13 @@ void rdb_normal(
     rdbTasks.push(task);
 }
 //
-void rdb_triangle(
+void rdbTriangle(
     float x0, float y0, float z0,
     float x1, float y1, float z1,
     float x2, float y2, float z2,
     int32_t group)
 {
-    rdbInit();
+    rdbInitCheck();
     RdbTask task;
     auto& t = task.rdbTriangle;
     t.x0 = x0;
