@@ -2,11 +2,14 @@
 #define WIN32_LEAN_AND_MEAN
 //
 #include <glfw/glfw3.h>
+#include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl2.h>
 #pragma comment(lib, "glfw3.lib")
 #pragma comment(lib, "opengl32.lib")
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 //
 #include <Windows.h>
 #include <WinSock2.h>
@@ -95,6 +98,44 @@ private:
     
 };
 
+class Camera
+{
+public:
+    Camera()
+    {
+        lookat_ = glm::vec3(0.0f, 0.0f, 0.0f);
+        up_ = glm::vec3(0.0f, 1.0f, 0.0f);
+        position_ = glm::vec3(0.0f, 0.0f, 10.0f);
+    }
+
+    void update()
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+        if (io.KeyAlt && ImGui::IsMouseDragging(0))
+        {
+            const ImVec2 delta = ImGui::GetMouseDragDelta();
+            delta.x;
+            delta.y;
+        }
+        //
+        /*glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();*/
+    }
+    //
+    glm::mat4 projectionMatrix(int32_t windowWidth, int32_t windowHeight) const
+    {
+        return glm::perspective(glm::radians(45.0f), float(windowWidth) / float(windowHeight), 0.1f, 100.0f);
+    }
+    glm::mat4 viewMatrix() const
+    {
+        return glm::lookAtLH(position_, lookat_, up_);
+    }
+public:
+    glm::vec3 lookat_;
+    glm::vec3 up_;
+    glm::vec3 position_;
+};
+
 //
 struct RdbLabel
 {
@@ -168,6 +209,7 @@ public:
     GLFWwindow* window_;
     int32_t windowWidth_;
     int32_t windowHeight_;
+    Camera camera_;
 public:
     static void resize_callback(GLFWwindow* window, int width, int height)
     {
@@ -422,13 +464,7 @@ public:
 
     //
     void drawLine()
-    {
-        // set up view
-        glViewport(0, 0, 400, 400);
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-        // see https://www.opengl.org/sdk/docs/man2/xhtml/glOrtho.xml
-        glOrtho(0.0, 400.0, 0.0, 400.0, 0.0, 1.0); // this creates a canvas you can do 2D drawing on
+    {        
         //
         glPointSize(pointSize_);
         glLineWidth(lineWidth_);
@@ -497,6 +533,8 @@ public:
                 }
             }
 
+            camera_.update();
+
 
             // Poll and handle events (inputs, window_ resize, etc.)
             // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
@@ -530,7 +568,31 @@ public:
             ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
             //glUseProgram(last_program);
             //
-            drawLine();
+            //camera_.viewMatrix();
+            
+            glPushMatrix();
+            {
+                const glm::mat4x4 matProj = camera_.projectionMatrix(windowWidth_, windowHeight_);
+                const glm::mat4x4 matView = camera_.viewMatrix();
+                const glm::mat4x4 matViewProj = (matProj * matView);
+                //glPushMatrix();
+
+                glViewport(0, 0, 400, 400);
+                //glLoadIdentity();
+                //glOrtho(0.0, 400.0, 0.0, 400.0, 0.0, 1.0);
+
+                glLoadMatrixf((const float*)glm::value_ptr(matViewProj));
+                
+                //// set up view
+                //glViewport(0, 0, 400, 400);
+                ////glMatrixMode(GL_PROJECTION);
+                ////glLoadIdentity();
+                //// see https://www.opengl.org/sdk/docs/man2/xhtml/glOrtho.xml
+                //glOrtho(0.0, 400.0, 0.0, 400.0, 0.0, 1.0); // this creates a canvas you can do 2D drawing on
+
+                drawLine();
+            }
+            glPopMatrix();
 
             glfwMakeContextCurrent(window_);
             glfwSwapBuffers(window_);

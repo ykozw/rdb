@@ -21,7 +21,8 @@ project "RDB Viewer"
    sysincludedirs{
      "thirdparty/glfw-3.3.bin.WIN64/include",
 	 "thirdparty/imgui/",
-	 "thirdparty/imgui/examples"
+	 "thirdparty/imgui/examples",
+	 "thirdparty/glm/"
    }
    libdirs {
      "thirdparty/glfw-3.3.bin.WIN64/lib-vc2019"
