@@ -1,8 +1,11 @@
-﻿
+﻿//
 #define WIN32_LEAN_AND_MEAN
-//
+#define NOMINMAX
+#include <Windows.h>
+#include <GL/glew.h>
 #include <glfw/glfw3.h>
-#include <glm/gtc/matrix_transform.hpp>
+#pragma comment(lib, "glu32.lib")
+
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl2.h>
@@ -10,16 +13,16 @@
 #pragma comment(lib, "opengl32.lib")
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
-//
-#include <Windows.h>
-#include <WinSock2.h>
-#include <concurrent_queue.h>
-#pragma comment(lib, "Ws2_32.lib")
+//#include <GL/freeglut.h>
 //
 #include <chrono>
 #include <thread>
 #include <vector>
 #include <array>
+
+#include <WinSock2.h>
+#include <concurrent_queue.h>
+#pragma comment(lib, "Ws2_32.lib")
 //
 #define BUFFER_SIZE (64 * 1024)
 
@@ -98,6 +101,7 @@ private:
     
 };
 
+//
 class Camera
 {
 public:
@@ -105,7 +109,7 @@ public:
     {
         lookat_ = glm::vec3(0.0f, 0.0f, 0.0f);
         up_ = glm::vec3(0.0f, 1.0f, 0.0f);
-        position_ = glm::vec3(0.0f, 0.0f, 10.0f);
+        position_ = glm::vec3(10.0f, 10.0f, 10.0f);
     }
 
     void update()
@@ -122,13 +126,17 @@ public:
         glLoadIdentity();*/
     }
     //
-    glm::mat4 projectionMatrix(int32_t windowWidth, int32_t windowHeight) const
+    glm::vec3 lookat() const
     {
-        return glm::perspective(glm::radians(45.0f), float(windowWidth) / float(windowHeight), 0.1f, 100.0f);
+        return lookat_;
     }
-    glm::mat4 viewMatrix() const
+    glm::vec3 up() const
     {
-        return glm::lookAtLH(position_, lookat_, up_);
+        return up_;
+    }
+    glm::vec3 position() const
+    {
+        return position_;
     }
 public:
     glm::vec3 lookat_;
@@ -203,6 +211,131 @@ struct RdbTask
 Concurrency::concurrent_queue<RdbTask> g_rdbTasks;
 //
 
+//
+class ShaderProg
+{
+public:
+    ShaderProg()
+    {
+#if 0
+        printf("VENDOR= %s \n", glGetString(GL_VENDOR));
+        printf("GPU= %s \n", glGetString(GL_RENDERER));
+        printf("OpenGL= %s \n", glGetString(GL_VERSION));
+        printf("ShaderProg= %s \n", glGetString(GL_SHADING_LANGUAGE_VERSION));
+#endif
+    }
+    //
+    ~ShaderProg()
+    {
+        glDeleteProgram(prog_);
+    }
+    //
+    void compile(uint32_t shader, const char* shaderStr)
+    {
+        // コンパイル
+        glShaderSource(shader, 1, &shaderStr, nullptr);
+        glCompileShader(shader);
+
+        // エラーチェック
+        GLint result = GL_FALSE;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &result);
+        if (result == GL_FALSE)
+        {
+            int infoLogLength;
+            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLogLength);
+            std::vector<int8_t> shaderErrorMessage(infoLogLength + 1);
+            glGetShaderInfoLog(shader, infoLogLength, nullptr, (GLchar*)shaderErrorMessage.data());
+            printf("compile failed\n%s\n", shaderErrorMessage.data());
+        }
+    }
+    //
+    void link(uint32_t program)
+    {
+        // リンク
+        glLinkProgram(program);
+        // エラーチェック
+        GLint linked;
+        glGetProgramiv(program, GL_LINK_STATUS, &linked);
+        if (linked == GL_FALSE)
+        {
+            GLsizei infoLogLength = 0;
+            printf("Link failed\n");
+            glGetProgramiv(program, GL_INFO_LOG_LENGTH, &infoLogLength);
+            if (infoLogLength > 0)
+            {
+                std::vector<char> infoLog(infoLogLength + 1);
+                GLsizei len;
+                glGetProgramInfoLog(program, infoLogLength, &len, infoLog.data());
+                printf(infoLog.data());
+            }
+        }
+    }
+    //
+    void init(const char* vertexShaderStr)
+    {
+        const uint32_t vertexShader = glCreateShader(GL_VERTEX_SHADER);
+        compile(vertexShader, vertexShaderStr);
+        prog_ = glCreateProgram();
+        glAttachShader(prog_, vertexShader);
+        glDeleteShader(vertexShader);
+        link(prog_);
+    }
+    //
+    void init(const char* VertexFile, const char* FragmentFile)
+    {
+        //
+        const uint32_t vertexShader = glCreateShader(GL_VERTEX_SHADER);
+        const uint32_t fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+        compile(vertexShader, VertexFile);
+        compile(fragmentShader, FragmentFile);
+        //
+        prog_ = glCreateProgram();
+        glAttachShader(prog_, vertexShader);
+        glAttachShader(prog_, fragmentShader);
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+        link(prog_);
+    }
+    //
+    void on()
+    {
+        glUseProgram(prog_);
+    }
+    //
+    void off()
+    {
+        glUseProgram(0);
+    }
+    //
+    int32_t getUniformHandle(const char* uniformVarName)
+    {
+        return glGetUniformLocation(prog_, uniformVarName);
+    }
+    //
+    void setUniformF1(int32_t handle, float value)
+    {
+        glUniform1f(handle, value);
+    }
+    //
+    void setUniformF2(int32_t handle, glm::vec2 value)
+    {
+        glUniform2f(handle, value.x, value.y);
+    }
+    //
+    void setUniformF3(int32_t handle, glm::vec3 value)
+    {
+        glUniform3f(handle, value.x, value.y, value.z);
+    }
+    //
+    void setUniformF4(int32_t handle, glm::vec4 value)
+    {
+        glUniform4f(handle, value.x, value.y, value.z, value.w);
+    }
+private:
+    uint32_t prog_ = -1;
+};
+
+//
 class Window
 {
 public:
@@ -210,6 +343,7 @@ public:
     int32_t windowWidth_;
     int32_t windowHeight_;
     Camera camera_;
+    ShaderProg shaderProg_;
 public:
     static void resize_callback(GLFWwindow* window, int width, int height)
     {
@@ -261,6 +395,18 @@ public:
         points_.setRingSize(ringSizeMaxDefault);
         lines_.setRingSize(ringSizeMaxDefault);
         triangles_.setRingSize(ringSizeMaxDefault);
+
+        // TODO: 呼び出しタイミングはこれでよいのか？
+        glewInit();
+        //
+        shaderProg_.init(R"(
+        void main(void)
+        {
+            gl_Position = ftransform();
+            gl_FrontColor = gl_Color;
+        }
+        )");
+        //uniformColorScale_ = shaderProg_.getUniformHandle("colorScale");
     }
     // https://github.com/ocornut/imgui/issues/707#issuecomment-468798935
     inline void Style()
@@ -464,11 +610,75 @@ public:
 
     //
     void drawLine()
-    {        
+    {
+        glViewport(0, 0, 400, 400); // TODO: onresizeに移動
+        /*glLoadIdentity();
+        glOrtho(0.0, 400.0, 0.0, 400.0, 0.0, 1.0);*/
+
+#if 1
+
+        // Projection行列の設定
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        const double aspect = double(windowWidth_) / double(windowHeight_);
+        const float fovy = 3.1415f / 3.0f;
+        const float nz = 0.01f;
+        const float fz = 1000.0f;
+        gluPerspective(fovy, aspect, nz, fz);
+
+        // MV行列設定
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+        const glm::vec3 target = camera_.lookat();
+        const glm::vec3 up = camera_.up();
+        const glm::vec3 pos = camera_.position();
+        gluLookAt( pos.x, pos.y, pos.z, target.x, target.y, target.z, up.x, up.y, up.z);
+#endif
+        GLdouble vertex[][3] = {
+  { 0.0, 0.0, 0.0 },
+  { 1.0, 0.0, 0.0 },
+  { 1.0, 1.0, 0.0 },
+  { 0.0, 1.0, 0.0 },
+  { 0.0, 0.0, 1.0 },
+  { 1.0, 0.0, 1.0 },
+  { 1.0, 1.0, 1.0 },
+  { 0.0, 1.0, 1.0 }
+        };
+
+        int edge[][2] = {
+          { 0, 1 },
+          { 1, 2 },
+          { 2, 3 },
+          { 3, 0 },
+          { 4, 5 },
+          { 5, 6 },
+          { 6, 7 },
+          { 7, 4 },
+          { 0, 4 },
+          { 1, 5 },
+          { 2, 6 },
+          { 3, 7 }
+        };
+
+        /* 図形の描画 */
+        glColor3d(0.0, 0.0, 0.0);
+        glBegin(GL_LINES);
+        for (int i = 0; i < 12; i++) {
+            glVertex3dv(vertex[edge[i][0]]);
+            glVertex3dv(vertex[edge[i][1]]);
+        }
+        glEnd();
+
+        glFlush();
+
+        return;
+
+
         //
         glPointSize(pointSize_);
         glLineWidth(lineWidth_);
         
+        //shaderProg_.on();
         for (int32_t i = 0; i < points_.size(); ++i)
         {
             glBegin(GL_POINTS); // TODO: まとめて実行する
@@ -490,6 +700,7 @@ public:
             glVertex3f(line.x1, line.y1, line.z1);
             glEnd();
         }
+        //shaderProg_.off();
 
         glColor3f(1.0, 0.0, 0.0);
         glBegin(GL_LINES);
@@ -572,16 +783,14 @@ public:
             
             glPushMatrix();
             {
-                const glm::mat4x4 matProj = camera_.projectionMatrix(windowWidth_, windowHeight_);
+                /*const glm::mat4x4 matProj = camera_.projectionMatrix(windowWidth_, windowHeight_);
                 const glm::mat4x4 matView = camera_.viewMatrix();
-                const glm::mat4x4 matViewProj = (matProj * matView);
+                const glm::mat4x4 matViewProj = (matProj * matView);*/
                 //glPushMatrix();
 
-                glViewport(0, 0, 400, 400);
-                //glLoadIdentity();
-                //glOrtho(0.0, 400.0, 0.0, 400.0, 0.0, 1.0);
+                
 
-                glLoadMatrixf((const float*)glm::value_ptr(matViewProj));
+                //glLoadMatrixf((const float*)glm::value_ptr(matViewProj));
                 
                 //// set up view
                 //glViewport(0, 0, 400, 400);
