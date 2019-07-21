@@ -210,132 +210,6 @@ struct RdbTask
 };
 Concurrency::concurrent_queue<RdbTask> g_rdbTasks;
 //
-
-//
-class ShaderProg
-{
-public:
-    ShaderProg()
-    {
-#if 0
-        printf("VENDOR= %s \n", glGetString(GL_VENDOR));
-        printf("GPU= %s \n", glGetString(GL_RENDERER));
-        printf("OpenGL= %s \n", glGetString(GL_VERSION));
-        printf("ShaderProg= %s \n", glGetString(GL_SHADING_LANGUAGE_VERSION));
-#endif
-    }
-    //
-    ~ShaderProg()
-    {
-        glDeleteProgram(prog_);
-    }
-    //
-    void compile(uint32_t shader, const char* shaderStr)
-    {
-        // コンパイル
-        glShaderSource(shader, 1, &shaderStr, nullptr);
-        glCompileShader(shader);
-
-        // エラーチェック
-        GLint result = GL_FALSE;
-        glGetShaderiv(shader, GL_COMPILE_STATUS, &result);
-        if (result == GL_FALSE)
-        {
-            int infoLogLength;
-            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLogLength);
-            std::vector<int8_t> shaderErrorMessage(infoLogLength + 1);
-            glGetShaderInfoLog(shader, infoLogLength, nullptr, (GLchar*)shaderErrorMessage.data());
-            printf("compile failed\n%s\n", shaderErrorMessage.data());
-        }
-    }
-    //
-    void link(uint32_t program)
-    {
-        // リンク
-        glLinkProgram(program);
-        // エラーチェック
-        GLint linked;
-        glGetProgramiv(program, GL_LINK_STATUS, &linked);
-        if (linked == GL_FALSE)
-        {
-            GLsizei infoLogLength = 0;
-            printf("Link failed\n");
-            glGetProgramiv(program, GL_INFO_LOG_LENGTH, &infoLogLength);
-            if (infoLogLength > 0)
-            {
-                std::vector<char> infoLog(infoLogLength + 1);
-                GLsizei len;
-                glGetProgramInfoLog(program, infoLogLength, &len, infoLog.data());
-                printf(infoLog.data());
-            }
-        }
-    }
-    //
-    void init(const char* vertexShaderStr)
-    {
-        const uint32_t vertexShader = glCreateShader(GL_VERTEX_SHADER);
-        compile(vertexShader, vertexShaderStr);
-        prog_ = glCreateProgram();
-        glAttachShader(prog_, vertexShader);
-        glDeleteShader(vertexShader);
-        link(prog_);
-    }
-    //
-    void init(const char* VertexFile, const char* FragmentFile)
-    {
-        //
-        const uint32_t vertexShader = glCreateShader(GL_VERTEX_SHADER);
-        const uint32_t fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-        compile(vertexShader, VertexFile);
-        compile(fragmentShader, FragmentFile);
-        //
-        prog_ = glCreateProgram();
-        glAttachShader(prog_, vertexShader);
-        glAttachShader(prog_, fragmentShader);
-        glDeleteShader(vertexShader);
-        glDeleteShader(fragmentShader);
-        link(prog_);
-    }
-    //
-    void on()
-    {
-        glUseProgram(prog_);
-    }
-    //
-    void off()
-    {
-        glUseProgram(0);
-    }
-    //
-    int32_t getUniformHandle(const char* uniformVarName)
-    {
-        return glGetUniformLocation(prog_, uniformVarName);
-    }
-    //
-    void setUniformF1(int32_t handle, float value)
-    {
-        glUniform1f(handle, value);
-    }
-    //
-    void setUniformF2(int32_t handle, glm::vec2 value)
-    {
-        glUniform2f(handle, value.x, value.y);
-    }
-    //
-    void setUniformF3(int32_t handle, glm::vec3 value)
-    {
-        glUniform3f(handle, value.x, value.y, value.z);
-    }
-    //
-    void setUniformF4(int32_t handle, glm::vec4 value)
-    {
-        glUniform4f(handle, value.x, value.y, value.z, value.w);
-    }
-private:
-    uint32_t prog_ = -1;
-};
-
-//
 class Window
 {
 public:
@@ -343,7 +217,6 @@ public:
     int32_t windowWidth_;
     int32_t windowHeight_;
     Camera camera_;
-    ShaderProg shaderProg_;
 public:
     static void resize_callback(GLFWwindow* window, int width, int height)
     {
@@ -354,9 +227,13 @@ public:
     {
         windowWidth_ = width;
         windowHeight_ = height;
+        // TODO: ちゃんとクライアント領域になってるか確認
+        glViewport(0, 0, width, height);
     }
     Window()
     {
+        // TODO: 呼び出しタイミングはこれでよいのか？
+        glewInit();
         // Setup window_
         glfwSetErrorCallback(glfw_error_callback);
         if (!glfwInit())
@@ -396,17 +273,7 @@ public:
         lines_.setRingSize(ringSizeMaxDefault);
         triangles_.setRingSize(ringSizeMaxDefault);
 
-        // TODO: 呼び出しタイミングはこれでよいのか？
-        glewInit();
-        //
-        shaderProg_.init(R"(
-        void main(void)
-        {
-            gl_Position = ftransform();
-            gl_FrontColor = gl_Color;
-        }
-        )");
-        //uniformColorScale_ = shaderProg_.getUniformHandle("colorScale");
+        
     }
     // https://github.com/ocornut/imgui/issues/707#issuecomment-468798935
     inline void Style()
@@ -611,12 +478,6 @@ public:
     //
     void drawLine()
     {
-        glViewport(0, 0, 400, 400); // TODO: onresizeに移動
-        /*glLoadIdentity();
-        glOrtho(0.0, 400.0, 0.0, 400.0, 0.0, 1.0);*/
-
-#if 1
-
         // Projection行列の設定
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
@@ -633,52 +494,12 @@ public:
         const glm::vec3 up = camera_.up();
         const glm::vec3 pos = camera_.position();
         gluLookAt( pos.x, pos.y, pos.z, target.x, target.y, target.z, up.x, up.y, up.z);
-#endif
-        GLdouble vertex[][3] = {
-  { 0.0, 0.0, 0.0 },
-  { 1.0, 0.0, 0.0 },
-  { 1.0, 1.0, 0.0 },
-  { 0.0, 1.0, 0.0 },
-  { 0.0, 0.0, 1.0 },
-  { 1.0, 0.0, 1.0 },
-  { 1.0, 1.0, 1.0 },
-  { 0.0, 1.0, 1.0 }
-        };
-
-        int edge[][2] = {
-          { 0, 1 },
-          { 1, 2 },
-          { 2, 3 },
-          { 3, 0 },
-          { 4, 5 },
-          { 5, 6 },
-          { 6, 7 },
-          { 7, 4 },
-          { 0, 4 },
-          { 1, 5 },
-          { 2, 6 },
-          { 3, 7 }
-        };
-
-        /* 図形の描画 */
-        glColor3d(0.0, 0.0, 0.0);
-        glBegin(GL_LINES);
-        for (int i = 0; i < 12; i++) {
-            glVertex3dv(vertex[edge[i][0]]);
-            glVertex3dv(vertex[edge[i][1]]);
-        }
-        glEnd();
-
-        glFlush();
-
-        return;
-
 
         //
         glPointSize(pointSize_);
         glLineWidth(lineWidth_);
-        
-        //shaderProg_.on();
+
+        //
         for (int32_t i = 0; i < points_.size(); ++i)
         {
             glBegin(GL_POINTS); // TODO: まとめて実行する
@@ -689,18 +510,17 @@ public:
             glEnd();
         }
 
+        glColor3f(1.0, 0.0, 0.0);
+        glBegin(GL_LINES); // TODO: まとめて実行する
         for (int32_t i = 0; i < lines_.size(); ++i)
         {
-            glColor3f(1.0, 0.0, 0.0);
-
-            glBegin(GL_LINES); // TODO: まとめて実行する
             const RdbLine& line = lines_[i];
             //glColor4f(line.r0, line.g0, line.b0, 1.0f); // TODO: 線の端で違う色にする
             glVertex3f(line.x0, line.y0, line.z0);
             glVertex3f(line.x1, line.y1, line.z1);
-            glEnd();
         }
-        //shaderProg_.off();
+        glEnd();
+        glFlush();
 
         glColor3f(1.0, 0.0, 0.0);
         glBegin(GL_LINES);
@@ -771,6 +591,11 @@ public:
             glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
             glClear(GL_COLOR_BUFFER_BIT);
 
+            //
+            glPushMatrix();
+            drawLine();
+            glPopMatrix();
+
             // If you are using this code with non-legacy OpenGL header/contexts (which you should not, prefer using imgui_impl_opengl3.cpp!!), 
             // you may need to backup/reset/restore current shader using the commented lines below.
             //GLint last_program; 
@@ -781,27 +606,7 @@ public:
             //
             //camera_.viewMatrix();
             
-            glPushMatrix();
-            {
-                /*const glm::mat4x4 matProj = camera_.projectionMatrix(windowWidth_, windowHeight_);
-                const glm::mat4x4 matView = camera_.viewMatrix();
-                const glm::mat4x4 matViewProj = (matProj * matView);*/
-                //glPushMatrix();
-
-                
-
-                //glLoadMatrixf((const float*)glm::value_ptr(matViewProj));
-                
-                //// set up view
-                //glViewport(0, 0, 400, 400);
-                ////glMatrixMode(GL_PROJECTION);
-                ////glLoadIdentity();
-                //// see https://www.opengl.org/sdk/docs/man2/xhtml/glOrtho.xml
-                //glOrtho(0.0, 400.0, 0.0, 400.0, 0.0, 1.0); // this creates a canvas you can do 2D drawing on
-
-                drawLine();
-            }
-            glPopMatrix();
+            
 
             glfwMakeContextCurrent(window_);
             glfwSwapBuffers(window_);
