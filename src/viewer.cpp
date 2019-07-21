@@ -107,23 +107,34 @@ class Camera
 public:
     Camera()
     {
-        lookat_ = glm::vec3(0.0f, 0.0f, 0.0f);
-        up_ = glm::vec3(0.0f, 1.0f, 0.0f);
-        position_ = glm::vec3(10.0f, 10.0f, 10.0f);
+        updateVecs();
     }
 
     void update()
     {
         const ImGuiIO& io = ImGui::GetIO();
-        if (io.KeyAlt && ImGui::IsMouseDragging(0))
+        if (io.KeyAlt && ImGui::IsMouseDragging(1))
         {
-            const ImVec2 delta = ImGui::GetMouseDragDelta();
-            delta.x;
-            delta.y;
+            const ImVec2 delta = ImGui::GetMouseDragDelta(1);
+            ImGui::ResetMouseDragDelta(1);
+            const float dx = 0.005f;
+            const float dy = 0.005f;
+            phi_ += delta.x * dx;
+            theta_ += -delta.y * dy;
+
+            updateVecs();
         }
         //
-        /*glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();*/
+        if (io.MouseWheel < 0.0f)
+        {
+            r_ *= 1.05f;
+            updateVecs();
+        }
+        else if (io.MouseWheel > 0.0f)
+        {
+            r_ *= 0.95f;
+            updateVecs();
+        }
     }
     //
     glm::vec3 lookat() const
@@ -138,10 +149,25 @@ public:
     {
         return position_;
     }
+private:
+    void updateVecs()
+    {
+        const float z = r_ * std::cosf(theta_);
+        const float x = r_ * std::sinf(theta_) * std::cosf(phi_);
+        const float y = r_ * std::sinf(theta_) * std::sinf(phi_);
+        position_.x = x;
+        position_.y = z;
+        position_.z = y;
+    }
 public:
-    glm::vec3 lookat_;
-    glm::vec3 up_;
-    glm::vec3 position_;
+    //
+    float r_ = 100.0f;
+    float theta_ = 0.3f;
+    float phi_ = 0.0f;
+    //
+    glm::vec3 lookat_ = glm::vec3(0.0f, 0.0f, 0.0f);;
+    glm::vec3 up_ = glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::vec3 position_ = glm::vec3(10.0f, 10.0f, 10.0f);
 };
 
 //
@@ -482,7 +508,7 @@ public:
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
         const double aspect = double(windowWidth_) / double(windowHeight_);
-        const float fovy = 3.1415f / 3.0f;
+        const float fovy = 3.1415f / 1.2f;
         const float nz = 0.01f;
         const float fz = 1000.0f;
         gluPerspective(fovy, aspect, nz, fz);
@@ -511,7 +537,7 @@ public:
         }
 
         glColor3f(1.0, 0.0, 0.0);
-        glBegin(GL_LINES); // TODO: まとめて実行する
+        glBegin(GL_LINES);
         for (int32_t i = 0; i < lines_.size(); ++i)
         {
             const RdbLine& line = lines_[i];
@@ -521,12 +547,6 @@ public:
         }
         glEnd();
         glFlush();
-
-        glColor3f(1.0, 0.0, 0.0);
-        glBegin(GL_LINES);
-        glVertex3f(10.0, 10.0, 0.0);
-        glVertex3f(200.0, 200.0, 0.0);
-        glEnd();
     }
     //
     void update()
@@ -564,8 +584,6 @@ public:
                 }
             }
 
-            camera_.update();
-
 
             // Poll and handle events (inputs, window_ resize, etc.)
             // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
@@ -578,6 +596,8 @@ public:
             ImGui_ImplOpenGL2_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
+            //
+            camera_.update();
 
             // GUI
             simpleWindow();

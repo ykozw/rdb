@@ -44,12 +44,12 @@ int main()
             v0[0], v0[1], v0[2], 
             v1[0], v1[1], v1[2]);
     }
-    return 0;
+    //return 0;
 
-    while (true)
+    for(int32_t i=0;i<100;++i)
     {
-        using namespace std::chrono_literals;
-        std::this_thread::sleep_for(50ms);
+        /*using namespace std::chrono_literals;
+        std::this_thread::sleep_for(50ms);*/
 
         if (false)
         {
@@ -72,7 +72,7 @@ int main()
             const float c = 1.0f;
             const float x0 = c * std::cosf(theta) + c;
             const float y0 = c * std::sinf(theta) + c;
-            const float dt = 0.1f;
+            const float dt = 0.2f;
             const float x1 = c * std::cosf(theta + dt) + c;
             const float y1 = c * std::sinf(theta + dt) + c;
             rdbLine(x0, y0, 0.0f, x1, y1, 0.0f);
