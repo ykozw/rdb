@@ -107,7 +107,6 @@ class Camera
 public:
     Camera()
     {
-        updateVecs();
     }
 
     void update()
@@ -119,55 +118,41 @@ public:
             ImGui::ResetMouseDragDelta(1);
             const float dx = 0.005f;
             const float dy = 0.005f;
-            phi_ += delta.x * dx;
-            theta_ += -delta.y * dy;
-
-            updateVecs();
+            const glm::qua<float> rotX = glm::rotate(glm::identity<glm::qua<float>>(), -delta.x * dx, glm::vec3(0.0f, 1.0f, 0.0f));
+            const glm::qua<float> rotY = glm::rotate(glm::identity<glm::qua<float>>(), delta.y * dy, glm::vec3(1.0f, 0.0f, 0.0f));
+            rotation_ = rotX* rotY * rotation_;
         }
         //
         if (io.MouseWheel < 0.0f)
         {
             r_ *= 1.05f;
-            updateVecs();
         }
         else if (io.MouseWheel > 0.0f)
         {
             r_ *= 0.95f;
-            updateVecs();
         }
     }
     //
     glm::vec3 lookat() const
     {
-        return lookat_;
+        return target_;
     }
     glm::vec3 up() const
     {
-        return up_;
+        const auto tmp = glm::vec3(0.0f, 1.0f, 0.0f) * rotation_;
+        return tmp;
     }
     glm::vec3 position() const
     {
-        return position_;
-    }
-private:
-    void updateVecs()
-    {
-        const float z = r_ * std::cosf(theta_);
-        const float x = r_ * std::sinf(theta_) * std::cosf(phi_);
-        const float y = r_ * std::sinf(theta_) * std::sinf(phi_);
-        position_.x = x;
-        position_.y = z;
-        position_.z = y;
+        glm::vec3 dir = glm::vec3(0.0f, 0.0f, 1.0f) * rotation_;
+        return target_ - dir * r_;
     }
 public:
     //
     float r_ = 100.0f;
-    float theta_ = 0.3f;
-    float phi_ = 0.0f;
     //
-    glm::vec3 lookat_ = glm::vec3(0.0f, 0.0f, 0.0f);;
-    glm::vec3 up_ = glm::vec3(0.0f, 1.0f, 0.0f);
-    glm::vec3 position_ = glm::vec3(10.0f, 10.0f, 10.0f);
+    glm::vec3 target_ = glm::vec3(0.0f, 0.0f, 0.0f);
+    glm::qua<float> rotation_ = glm::identity<glm::qua<float>>();
 };
 
 //
@@ -512,7 +497,6 @@ public:
         const float nz = 0.01f;
         const float fz = 1000.0f;
         gluPerspective(fovy, aspect, nz, fz);
-
         // MV行列設定
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
@@ -520,29 +504,26 @@ public:
         const glm::vec3 up = camera_.up();
         const glm::vec3 pos = camera_.position();
         gluLookAt( pos.x, pos.y, pos.z, target.x, target.y, target.z, up.x, up.y, up.z);
-
         //
         glPointSize(pointSize_);
         glLineWidth(lineWidth_);
-
-        //
+        // points
+        glBegin(GL_POINTS);
         for (int32_t i = 0; i < points_.size(); ++i)
         {
-            glBegin(GL_POINTS); // TODO: まとめて実行する
             const RdbPoint& point = points_[i];
             glColor4f(point.r, point.g, point.b, 1.0f);
-            //glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
             glVertex3f(point.x, point.y, point.z);
-            glEnd();
         }
-
-        glColor3f(1.0, 0.0, 0.0);
+        glEnd();
+        // lines
         glBegin(GL_LINES);
         for (int32_t i = 0; i < lines_.size(); ++i)
         {
             const RdbLine& line = lines_[i];
-            //glColor4f(line.r0, line.g0, line.b0, 1.0f); // TODO: 線の端で違う色にする
+            glColor4f(line.r0, line.g0, line.b0, 1.0f);
             glVertex3f(line.x0, line.y0, line.z0);
+            glColor4f(line.r1, line.g1, line.b1, 1.0f);
             glVertex3f(line.x1, line.y1, line.z1);
         }
         glEnd();
