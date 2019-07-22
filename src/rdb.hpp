@@ -3,18 +3,19 @@
 
 #include <cstdint>
 //
+void rdbClear();
 void rdbLabel(
-    const char* label, int32_t group = 0);
+    int32_t group, const char* label);
 void rdbPoint(
     float x, float y, float z, 
     float r = 1.0f, float g = 1.0f, float b = 1.0f,
     int32_t group = 0);
 void rdbLine(
+    int32_t group,
     float x0, float y0, float z0,
     float x1, float y1, float z1,
     float r0 = 1.0f, float g0 = 1.0f, float b0 = 1.0f,
-    float r1 = 1.0f, float g1 = 1.0f, float b1 = 1.0f,
-    int32_t group = 0);
+    float r1 = 1.0f, float g1 = 1.0f, float b1 = 1.0f );
 
 #if defined(RDB_IMPLIMATATION)
 //
@@ -147,7 +148,7 @@ void rdbMain()
             case RdbTaskType::LABEL:
             {
                 const auto& t = task.rdbLabel;
-                rdb_printf("E %s,%d\n", t.label, t.group);
+                rdb_printf("E %d,%s\n", t.group, t.label);
             }
             break;
             case RdbTaskType::POINT:
@@ -211,7 +212,7 @@ void rdbInitCheck()
 }
 
 //
-void rdbLabel(const char* label, int32_t group)
+void rdbLabel(int32_t group, const char* label)
 {
     rdbInitCheck();
     RdbTask task;
@@ -240,11 +241,11 @@ void rdbPoint(
 }
 //
 void rdbLine(
+    int32_t group,
     float x0, float y0, float z0, 
     float x1, float y1, float z1,
     float r0, float g0, float b0,
-    float r1, float g1, float b1,
-    int32_t group )
+    float r1, float g1, float b1 )
 {
     rdbInitCheck();
     RdbTask task;

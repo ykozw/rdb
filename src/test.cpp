@@ -9,7 +9,6 @@
 int main()
 {
     float tmp = 0.0f;
-    rdbLabel("TEST", 0);
     float theta = 0.0f;
 
     float vertex[][3] = {
@@ -37,15 +36,18 @@ int main()
       { 2, 6 },
       { 3, 7 }
     };
+    rdbLabel(0, "Cube");
     for (int i = 0; i < 12; i++) {
         const float* v0 = vertex[edge[i][0]];
         const float* v1 = vertex[edge[i][1]];
         rdbLine(
+            0,
             v0[0], v0[1], v0[2], 
             v1[0], v1[1], v1[2]);
     }
     //return 0;
 
+    rdbLabel(1, "Circle");
     for(int32_t i=0;i<128;++i)
     {
         /*using namespace std::chrono_literals;
@@ -81,7 +83,7 @@ int main()
             const float g = (std::sinf(tb + 3.14f / 3.0f) + 1.0f) * 0.5f;
             const float b = (std::sinf(tb + 3.14f * 2.0f / 3.0f) + 1.0f) * 0.5f;
 
-            rdbLine(x0, y0, 0.0f, x1, y1, 0.0f, 1,0,0, 0,1,0);
+            rdbLine(1, x0, y0, 0.0f, x1, y1, 0.0f, 1.0f,0.0f,0.0f, 0.0f,1.0f,0.0f);
             theta += 0.6f;
         }
 

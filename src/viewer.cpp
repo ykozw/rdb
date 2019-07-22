@@ -19,6 +19,7 @@
 #include <thread>
 #include <vector>
 #include <array>
+#include <unordered_map>
 
 #include <WinSock2.h>
 #include <concurrent_queue.h>
@@ -28,7 +29,7 @@
 
 enum class RdbTaskType : int32_t
 {
-    LABEL,
+    CLEAR,
     POINT,
     LINE,
     TRIANGLE,
@@ -102,6 +103,47 @@ private:
 };
 
 //
+class AABB
+{
+public:
+    AABB() = default;
+    void clear()
+    {
+        *this = AABB();
+    }
+    void add(glm::vec3 point)
+    {
+        min_ = glm::min(point, min_);
+        max_ = glm::max(point, max_);
+    }
+    glm::vec3 max() const
+    {
+        return max_;
+    }
+    glm::vec3 min() const
+    {
+        return min_;
+    }
+    glm::vec3 center() const
+    {
+        return (min_ + max_) * 0.5f;
+    }
+    glm::vec3 size() const
+    {
+        return (max_ - min_);
+    }
+private:
+    glm::vec3 min_ = glm::vec3(
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max());
+    glm::vec3 max_ = glm::vec3(
+        std::numeric_limits<float>::lowest(),
+        std::numeric_limits<float>::lowest(),
+        std::numeric_limits<float>::lowest());
+};
+
+//
 class Camera
 {
 public:
@@ -127,11 +169,12 @@ public:
         {
             const ImVec2 delta = ImGui::GetMouseDragDelta(2);
             ImGui::ResetMouseDragDelta(2);
+            const float scale = 0.00005f;
+            const float moveScale = r_ * scale;
             const glm::vec3 xaxis = glm::vec3(1.0f, 0.0f, 0.0f) * rotation_;
-            const glm::vec3 yaxis = glm::vec3(0.0f, 1.0f, 0.0f) * rotation_;
-            const float s = 0.00005f;
-            target_ += r_ * s * xaxis * delta.x;
-            target_ += r_ * s * yaxis * delta.y;
+            const glm::vec3 yaxis = glm::vec3(1.0f, 1.0f, 0.0f) * rotation_;
+            target_ += moveScale * xaxis * delta.x;
+            target_ += moveScale * yaxis * delta.y;
         }
         //
         if (io.MouseWheel < 0.0f)
@@ -157,6 +200,14 @@ public:
         glm::vec3 dir = glm::vec3(0.0f, 0.0f, 1.0f) * rotation_;
         return target_ - dir * r_;
     }
+    void setTarget(glm::vec3 target)
+    {
+        target_ = target;
+    }
+    void setDistance(float distance)
+    {
+        r_ = distance;
+    }
 public:
     //
     float r_ = 100.0f;
@@ -168,7 +219,7 @@ public:
 struct RdbLabel
 {
 public:
-    const char* label;
+    std::string label;
     int32_t group;
 };
 //
@@ -222,13 +273,213 @@ struct RdbTask
     RdbTaskType type;
     union
     {
-        RdbLabel rdbLabel;
         RdbPoint rdbPoint;
         RdbLine  rdbLine;
         RdbTriangle rdbTriangle;
     };
 };
 Concurrency::concurrent_queue<RdbTask> g_rdbTasks;
+Concurrency::concurrent_queue<RdbLabel> g_rdbLabels;
+#include <functional>
+
+class Socket
+{
+public:
+    void init()
+    {
+        threawd_ = std::thread([this]() {socketMain(); });
+    }
+    void setOnConnect(const std::function<void(void)>& onConnect)
+    {
+        onConnect_ = onConnect;
+    }
+    //
+    void socketMain()
+    {
+        WSADATA wsaData;
+        if (WSAStartup(MAKEWORD(2, 2), &wsaData))
+        {
+            exit(1);
+        }
+        SOCKET sockd = ::socket(AF_INET, SOCK_STREAM, 0);
+        //avoid address in use error that occur if we quit with a client connected
+        int t = 1;
+        int status = ::setsockopt(sockd, SOL_SOCKET, SO_REUSEADDR, (const char*)& t, sizeof(int));
+        if (status == -1)
+        {
+            exit(1);
+        }
+        struct sockaddr_in name;
+        name.sin_family = AF_INET;
+        name.sin_addr.s_addr = INADDR_ANY;
+        name.sin_port = ::htons(10000);
+
+        if (sockd == -1)
+        {
+            exit(1);
+        }
+
+        status = bind(sockd, (struct sockaddr*) & name, sizeof(name));
+        if (status == -1)
+        {
+            exit(1);
+        }
+        status = ::listen(sockd, 5);
+        if (status == -1)
+        {
+            exit(1);
+        }
+
+        while (true)
+        {
+            puts("wait for connection");
+            struct sockaddr_in peer_name;
+            int32_t addrlen = sizeof(peer_name);
+            SOCKET sock2 = ::accept(sockd, (struct sockaddr*) & peer_name, &addrlen);
+            puts("connected");
+            if (onConnect_)
+            {
+                onConnect_();
+            }
+            //
+            size_t dataLen = 0;
+            while (true)
+            {
+                using namespace std::chrono_literals;
+                std::this_thread::sleep_for(10ms);
+                char data[BUFFER_SIZE / 16];
+                int r = recv(sock2, data, sizeof(data) - 1, 0);
+                if (r < 0)
+                {
+                    puts("disconnect");
+                    break;
+                }
+
+                if (r > 0)
+                {
+                    //
+                    dataLen += r;
+                    // あふれる場合はすべてリセット
+                    if (sizeof(datum_) <= dataLen)
+                    {
+                        dataLen = 0;
+                        datum_[0] = '\0';
+                        puts("OUT");
+                    }
+                    else
+                    {
+                        data[dataLen] = '\0';
+                        strcat(datum_, data);
+
+                        // "\n"が入っていたら分割フェイズ
+                        if (strchr(datum_, '\n') != nullptr)
+                        {
+                            // TODO: 最後のに\nが入っていることを確認しないといけない
+                            const char* token = strtok(datum_, "\n");
+                            processToken(token);
+                            const char* lastToken = nullptr;
+                            while (token = strtok(nullptr, "\n"))
+                            {
+                                lastToken = token;
+                                processToken(token);
+                            }
+                            //// 最後の要素に\nがなければ次回に回す
+                            //if (strchr(lastToken, '\n') == nullptr)
+                            //{
+                            //    dataLen = strlen(lastToken);
+                            //    memmove(datum_, lastToken, strlen(lastToken)+1);
+                            //}
+                            //else
+                            {
+                                dataLen = 0;
+                                datum_[0] = '\0';
+                            }
+
+                        }
+                    }
+                }
+            }
+        }
+    }
+    void processToken(const char* token)
+    {
+        RdbTask task;
+        switch (token[0])
+        {
+        case 'C':
+        {
+            task.type = RdbTaskType::CLEAR;
+            g_rdbTasks.push(task);
+        }
+        break;
+        case 'E':
+        {
+            // TODO: このくらいで足りる？
+            char label[0xff];
+            int32_t group;
+            if (sscanf(token, "E %d,%s", &group, label) == 2)
+            {
+                std::string str;
+                str.assign(label);
+                RdbLabel rdbLabel;
+                rdbLabel.group = group;
+                rdbLabel.label = str;
+                g_rdbLabels.push(rdbLabel);
+            }
+        }
+        break;
+        case 'P':
+        {
+            task.type = RdbTaskType::POINT;
+            auto& t = task.rdbPoint;
+            if (sscanf(token, "P %f,%f,%f,%f,%f,%f,%d\n",
+                &t.x, &t.y, &t.z, &t.r, &t.g, &t.b, &t.group) == 7)
+            {
+                g_rdbTasks.push(task);
+            }
+        }
+        break;
+        case 'L':
+        {
+            task.type = RdbTaskType::LINE;
+            auto& t = task.rdbLine;
+            if (sscanf(token, "L %f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
+                &t.x0, &t.y0, &t.z0,
+                &t.x1, &t.y1, &t.z1,
+                &t.r0, &t.g0, &t.b0,
+                &t.r1, &t.g1, &t.b1,
+                &t.group) == 13)
+            {
+                g_rdbTasks.push(task);
+            }
+
+        }
+        break;
+        case 'T':
+        {
+            float x0, y0, z0, x1, y1, z1, x2, y2, z2;
+            float r, g, b;
+            int32_t group;
+            if (sscanf(token, "T %f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
+                &x0, &y0, &z0,
+                &x1, &y1, &z1,
+                &x2, &y2, &z2,
+                &r, &g, &b,
+                &group) == 10)
+            {
+                printf("TRI (%f,%f,%f) (%f,%f,%f) (%f,%f,%f)\n",
+                    x0, y0, z0, x1, y1, z1, x2, y2, z2);
+            }
+        }
+        break;
+        }
+    }
+private:
+    std::thread threawd_;
+    char datum_[BUFFER_SIZE] = { '\0' };
+    std::function<void(void)> onConnect_ = nullptr;
+};
+
 //
 class Window
 {
@@ -237,21 +488,13 @@ public:
     int32_t windowWidth_;
     int32_t windowHeight_;
     Camera camera_;
+    Socket socket_;
 public:
-    static void resize_callback(GLFWwindow* window, int width, int height)
-    {
-        Window* this_ = static_cast<Window*>(glfwGetWindowUserPointer(window));
-        this_->onWindowResize(width, height);
-    }
-    void onWindowResize(int32_t width, int32_t height)
-    {
-        windowWidth_ = width;
-        windowHeight_ = height;
-        // TODO: ちゃんとクライアント領域になってるか確認
-        glViewport(0, 0, width, height);
-    }
     Window()
     {
+        //
+        socket_.init();
+        socket_.setOnConnect([this](){ clear(); });
         // TODO: 呼び出しタイミングはこれでよいのか？
         glewInit();
         // Setup window_
@@ -288,12 +531,9 @@ public:
 
         //
         const int32_t ringSizeMaxDefault = 1024*16;
-        labels_.setRingSize(ringSizeMaxDefault);
         points_.setRingSize(ringSizeMaxDefault);
         lines_.setRingSize(ringSizeMaxDefault);
         triangles_.setRingSize(ringSizeMaxDefault);
-
-        
     }
     // https://github.com/ocornut/imgui/issues/707#issuecomment-468798935
     inline void Style()
@@ -388,6 +628,55 @@ public:
 #endif
     }
     //
+    static void resize_callback(GLFWwindow* window, int width, int height)
+    {
+        Window* this_ = static_cast<Window*>(glfwGetWindowUserPointer(window));
+        this_->onWindowResize(width, height);
+    }
+    //
+    void onWindowResize(int32_t width, int32_t height)
+    {
+        windowWidth_ = width;
+        windowHeight_ = height;
+    }
+    // カメラをシーンにフィットさせる
+    void fitCamrera()
+    {
+        AABB sceneBound;
+        //
+        for (int32_t i = 0; i < points_.size(); ++i)
+        {
+            auto& p = points_[i];
+            sceneBound.add(glm::vec3(p.x, p.y, p.z));
+        }
+        //
+        for (int32_t i = 0; i < lines_.size(); ++i)
+        {
+            auto& l = lines_[i];
+            sceneBound.add(glm::vec3(l.x0, l.y0, l.z0));
+            sceneBound.add(glm::vec3(l.x1, l.y1, l.z1));
+        }
+        //
+        camera_.setTarget(sceneBound.center());
+        const glm::vec3 size = sceneBound.size();
+        const float scale = 25.0f; // TODO: 本当はfovを見て計算するべき
+        const float distance = (size.x + size.y + size.z) * 0.5f * scale;
+        camera_.setDistance(distance);
+    }
+    //
+    void clear()
+    {
+        labelToGroup.clear();
+        points_.clear();
+        lines_.clear();
+        triangles_.clear();
+    }
+    //
+    void onDisconnect()
+    {
+        clear();
+    }
+    //
     void simpleWindow()
     {
         //
@@ -397,10 +686,10 @@ public:
         window_flags |= ImGuiWindowFlags_NoResize;
         //window_flags |= ImGuiWindowFlags_NoBackground;
 
-        const int32_t guiWidth = 400;
-        ImGui::SetNextWindowPos(ImVec2(windowWidth_-guiWidth, 0.0f));
+        
+        ImGui::SetNextWindowPos(ImVec2(windowWidth_-GUI_WIDTH, 0.0f));
         ImGui::SetNextWindowSize(ImVec2(
-            guiWidth,
+            GUI_WIDTH,
             windowHeight_));
 
         ImGui::Begin("MainWindow", nullptr, window_flags);
@@ -420,10 +709,12 @@ public:
             ImGui::SameLine();
             if (ImGui::Button("Clear"))
             {
-                labels_.clear();
-                points_.clear();
-                lines_.clear();
-                triangles_.clear();
+                clear();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("FIT_CAMERA"))
+            {
+                fitCamrera();
             }
             static char portNoBuffer[64] = "";
             ImGui::AlignTextToFramePadding();
@@ -468,10 +759,10 @@ public:
             ImGui::Text("Line     %8d", lines_.size());
             ImGui::SameLine();
             ImGui::SetNextItemWidth(60);
-            int lineRingMax = labels_.ringSize();
+            int lineRingMax = lines_.ringSize();
             if (ImGui::DragInt("##LINE_RING_MAX", &lineRingMax, 1, 16, 255))
             {
-                labels_.setRingSize(lineRingMax);
+                lines_.setRingSize(lineRingMax);
             }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120);
@@ -498,14 +789,18 @@ public:
     //
     void drawLine()
     {
+        //
+        glViewport(0, 0, windowWidth_ - GUI_WIDTH, windowHeight_);
+
         // Projection行列の設定
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
-        const double aspect = double(windowWidth_) / double(windowHeight_);
+        const double aspect = double(windowWidth_  - GUI_WIDTH) / double(windowHeight_);
         const float fovy = 3.1415f / 1.2f;
         const float nz = 0.01f;
         const float fz = 1000.0f;
         gluPerspective(fovy, aspect, nz, fz);
+
         // MV行列設定
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
@@ -549,8 +844,8 @@ public:
         // Main loop
         while (!glfwWindowShouldClose(window_))
         {
-
             // 全ての積まれているタスクを描画に変換する
+            bool hasClear = false;
             while (!g_rdbTasks.empty())
             {
                 RdbTask task;
@@ -558,8 +853,8 @@ public:
                 {
                     switch (task.type)
                     {
-                    case RdbTaskType::LABEL:
-                        labels_.add(task.rdbLabel);
+                    case RdbTaskType::CLEAR:
+                        hasClear = true;
                         break;
                     case RdbTaskType::POINT:
                         points_.add(task.rdbPoint);
@@ -572,6 +867,19 @@ public:
                         break;
                     }                    
                 }
+            }
+            if (hasClear)
+            {
+                labelToGroup.clear();
+                points_.clear();
+                lines_.clear();
+                triangles_.clear();
+            }
+
+            RdbLabel label;
+            while (g_rdbLabels.try_pop(label))
+            {
+                labelToGroup[label.label] = label.group;
             }
 
 
@@ -628,206 +936,21 @@ private:
         fprintf(stderr, "Glfw Error %d: %s\n", error, description);
     }
 private:
-    RingBuffer<RdbLabel> labels_;
+    std::unordered_map<std::string, int32_t> labelToGroup;
     RingBuffer<RdbPoint> points_;
     RingBuffer<RdbLine> lines_;
     RingBuffer<RdbTriangle> triangles_;
     float pointSize_ = 1.0f;
     float lineWidth_ = 1.0f;
+    //
+    const int32_t GUI_WIDTH = 400;
 };
 
 
-
-class Socket
-{
-    std::thread threawd_;
-    char datum_[BUFFER_SIZE] = {'\0'};
-public:
-    void init()
-    {
-        threawd_ = std::thread([this]() {socketMain(); });
-    }
-    void socketMain()
-    {
-        WSADATA wsaData;
-        if (WSAStartup(MAKEWORD(2, 2), &wsaData))
-        {
-            exit(1);
-        }
-        SOCKET sockd = ::socket(AF_INET, SOCK_STREAM, 0);
-        //avoid address in use error that occur if we quit with a client connected
-        int t = 1;
-        int status = ::setsockopt(sockd, SOL_SOCKET, SO_REUSEADDR, (const char*)& t, sizeof(int));
-        if (status == -1)
-        {
-            exit(1);
-        }
-        struct sockaddr_in name;
-        name.sin_family = AF_INET;
-        name.sin_addr.s_addr = INADDR_ANY;
-        name.sin_port = ::htons(10000);
-
-        if (sockd == -1)
-        {
-            exit(1);
-        }
-
-        status = bind(sockd, (struct sockaddr*) & name, sizeof(name));
-        if (status == -1)
-        {
-            exit(1);
-        }
-        status = ::listen(sockd, 5);
-        if (status == -1)
-        {
-            exit(1);
-        }
-
-        while (true)
-        {
-            puts("wait for connection");
-            struct sockaddr_in peer_name;
-            int32_t addrlen = sizeof(peer_name);
-            SOCKET sock2 = ::accept(sockd, (struct sockaddr*) & peer_name, &addrlen);
-            puts("connected");
-            //
-            size_t dataLen = 0;
-            while (true)
-            {
-                using namespace std::chrono_literals;
-                std::this_thread::sleep_for(10ms);
-                char data[BUFFER_SIZE/16];
-                int r = recv(sock2, data, sizeof(data)-1, 0);
-                if (r < 0)
-                {
-                    puts("disconnect");
-                    break;
-                }
-                
-                if (r > 0)
-                {
-                    //
-                    dataLen += r;
-                    // あふれる場合はすべてリセット
-                    if (sizeof(datum_) <= dataLen)
-                    {
-                        dataLen = 0;
-                        datum_[0] = '\0';
-                        puts("OUT");
-                    }
-                    else
-                    {
-                        data[dataLen] = '\0';
-                        strcat(datum_, data);
-
-                        // "\n"が入っていたら分割フェイズ
-                        if (strchr(datum_, '\n') != nullptr)
-                        {
-                            // TODO: 最後のに\nが入っていることを確認しないといけない
-                            const char* token = strtok(datum_, "\n");
-                            processToken(token);
-                            const char* lastToken = nullptr;
-                            while (token = strtok(nullptr, "\n"))
-                            {
-                                lastToken = token;
-                                processToken(token);
-                            }
-                            //// 最後の要素に\nがなければ次回に回す
-                            //if (strchr(lastToken, '\n') == nullptr)
-                            //{
-                            //    dataLen = strlen(lastToken);
-                            //    memmove(datum_, lastToken, strlen(lastToken)+1);
-                            //}
-                            //else
-                            {
-                                dataLen = 0;
-                                datum_[0] = '\0';
-                            }
-                            
-                        }
-                    }
-                }
-            }
-        }
-    }
-    void processToken(const char* token)
-    {
-        RdbTask task;
-        switch (token[0])
-        {
-        case 'E':
-        {
-            char label[0xff];
-            int32_t group;
-            if (sscanf(token, "E %s,%d\n", label, &group) == 2)
-            {
-                printf("LABEL %s\n", label);
-            }
-        }
-        break;
-        case 'C':
-        {
-            float r, g, b;
-            int32_t group;
-            if(sscanf(token, "C %f,%f,%f,%d\n", &r, &g, &b, &group) == 4)
-            {
-                printf("COLOR %f,%f,%f\n", r, g, b);
-            }
-        }
-        break;
-        case 'P':
-        {
-            task.type = RdbTaskType::POINT;
-            auto& t = task.rdbPoint;
-            if (sscanf(token, "P %f,%f,%f,%f,%f,%f,%d\n",
-                &t.x, &t.y, &t.z, &t.r, &t.g, &t.b ,&t.group) == 7)
-            {
-                g_rdbTasks.push(task);
-            }
-        }
-        break;
-        case 'L':
-        {
-            task.type = RdbTaskType::LINE;
-            auto& t = task.rdbLine;
-            if (sscanf(token, "L %f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
-                &t.x0, &t.y0, &t.z0,
-                &t.x1, &t.y1, &t.z1,
-                &t.r0, &t.g0, &t.b0,
-                &t.r1, &t.g1, &t.b1,
-                &t.group) == 13)
-            {
-                g_rdbTasks.push(task);
-            }
-
-        }
-        break;
-        case 'T':
-        {
-            float x0, y0, z0, x1, y1, z1, x2, y2, z2;
-            float r, g, b;
-            int32_t group;
-            if (sscanf(token, "T %f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
-                &x0, &y0, &z0,
-                &x1, &y1, &z1,
-                &x2, &y2, &z2,
-                &r, &g, &b,
-                &group) == 10)
-            {
-                printf("TRI (%f,%f,%f) (%f,%f,%f) (%f,%f,%f)\n",
-                    x0, y0, z0, x1, y1, z1, x2, y2, z2);
-            }
-        }
-        break;
-        }
-    }
-};
 
 //
 int main()
 {
-    Socket socket;
-    socket.init();
     Window window;
     window.update();
 }
