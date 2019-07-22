@@ -105,22 +105,33 @@ private:
 class Camera
 {
 public:
-    Camera()
-    {
-    }
-
+    Camera() = default;
+    //
     void update()
     {
         const ImGuiIO& io = ImGui::GetIO();
+        // 右ドラッグで回転
         if (io.KeyAlt && ImGui::IsMouseDragging(1))
         {
             const ImVec2 delta = ImGui::GetMouseDragDelta(1);
             ImGui::ResetMouseDragDelta(1);
             const float dx = 0.005f;
             const float dy = 0.005f;
-            const glm::qua<float> rotX = glm::rotate(glm::identity<glm::qua<float>>(), -delta.x * dx, glm::vec3(0.0f, 1.0f, 0.0f));
-            const glm::qua<float> rotY = glm::rotate(glm::identity<glm::qua<float>>(), delta.y * dy, glm::vec3(1.0f, 0.0f, 0.0f));
-            rotation_ = rotX* rotY * rotation_;
+            rotation_ = 
+                glm::rotate(glm::identity<glm::qua<float>>(), -delta.x * dx, glm::vec3(0.0f, 1.0f, 0.0f)) *
+                glm::rotate(glm::identity<glm::qua<float>>(), +delta.y * dy, glm::vec3(1.0f, 0.0f, 0.0f)) *
+                rotation_;
+        }
+        // 中ドラッグで横移動
+        if (io.KeyAlt && ImGui::IsMouseDragging(2))
+        {
+            const ImVec2 delta = ImGui::GetMouseDragDelta(2);
+            ImGui::ResetMouseDragDelta(2);
+            const glm::vec3 xaxis = glm::vec3(1.0f, 0.0f, 0.0f) * rotation_;
+            const glm::vec3 yaxis = glm::vec3(0.0f, 1.0f, 0.0f) * rotation_;
+            const float s = 0.00005f;
+            target_ += r_ * s * xaxis * delta.x;
+            target_ += r_ * s * yaxis * delta.y;
         }
         //
         if (io.MouseWheel < 0.0f)
@@ -139,8 +150,7 @@ public:
     }
     glm::vec3 up() const
     {
-        const auto tmp = glm::vec3(0.0f, 1.0f, 0.0f) * rotation_;
-        return tmp;
+        return glm::vec3(0.0f, 1.0f, 0.0f) * rotation_;
     }
     glm::vec3 position() const
     {
@@ -150,7 +160,6 @@ public:
 public:
     //
     float r_ = 100.0f;
-    //
     glm::vec3 target_ = glm::vec3(0.0f, 0.0f, 0.0f);
     glm::qua<float> rotation_ = glm::identity<glm::qua<float>>();
 };
