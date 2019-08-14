@@ -29,7 +29,6 @@
 
 enum class RdbTaskType : int32_t
 {
-    CLEAR,
     POINT,
     LINE,
     TRIANGLE,
@@ -40,6 +39,10 @@ template<typename Type>
 struct RingBuffer
 {
 public:
+    bool valid() const
+    {
+        return (ringSize_ > 0);
+    }
     //
     void setRingSize(int32_t ringSize)
     {
@@ -52,6 +55,21 @@ public:
     {
         buffer_.clear();
         cursor_ = 0;
+    }
+    void trim(int32_t mnPercent, int32_t mxPercent)
+    {
+        if (!valid())
+        {
+            return;
+        }
+        tmpBuffer_.clear();
+        const int32_t b = size() * mnPercent / 100;
+        const int32_t e = size() * mxPercent / 100;
+        for (int32_t i=b;i<e;++i)
+        {
+            tmpBuffer_.push_back(operator[](i));
+        }
+        buffer_ = tmpBuffer_;
     }
     //
     int32_t size() const
@@ -66,8 +84,11 @@ public:
     template<typename Type>
     void add(const Type& value)
     {
-        if ((ringSize_ == -1) ||
-            (buffer_.size() < ringSize_))
+        if (!valid())
+        {
+            return;
+        }
+        if (buffer_.size() < ringSize_)
         {
             buffer_.push_back(value);
         }
@@ -81,24 +102,27 @@ public:
     template<typename Type>
     Type& operator [](int32_t index)
     {
-        if (ringSize_ > 0)
+        if (!valid())
         {
-            index = (index + cursor_) % ringSize_;
+            return Type();
         }
+        index = (index + cursor_) % ringSize_;
         return buffer_[index];
     }
     const Type& operator [](int32_t index) const
     {
-        if (ringSize_ > 0)
+        if (!valid())
         {
-            index = (index + cursor_) % ringSize_;
+            return Type();
         }
+        index = (index + cursor_) % ringSize_;
         return buffer_[index];
     }
 private:
     int32_t ringSize_ = -1;
     int32_t cursor_ = 0;
     std::vector<Type> buffer_;
+    std::vector<Type> tmpBuffer_;
     
 };
 
@@ -216,13 +240,6 @@ public:
 };
 
 //
-struct RdbLabel
-{
-public:
-    std::string label;
-    int32_t group;
-};
-//
 struct RdbPoint
 {
 public:
@@ -279,7 +296,6 @@ struct RdbTask
     };
 };
 Concurrency::concurrent_queue<RdbTask> g_rdbTasks;
-Concurrency::concurrent_queue<RdbLabel> g_rdbLabels;
 #include <functional>
 
 class Socket
@@ -406,28 +422,6 @@ public:
         RdbTask task;
         switch (token[0])
         {
-        case 'C':
-        {
-            task.type = RdbTaskType::CLEAR;
-            g_rdbTasks.push(task);
-        }
-        break;
-        case 'E':
-        {
-            // TODO: このくらいで足りる？
-            char label[0xff];
-            int32_t group;
-            if (sscanf(token, "E %d,%s", &group, label) == 2)
-            {
-                std::string str;
-                str.assign(label);
-                RdbLabel rdbLabel;
-                rdbLabel.group = group;
-                rdbLabel.label = str;
-                g_rdbLabels.push(rdbLabel);
-            }
-        }
-        break;
         case 'P':
         {
             task.type = RdbTaskType::POINT;
@@ -457,18 +451,17 @@ public:
         break;
         case 'T':
         {
-            float x0, y0, z0, x1, y1, z1, x2, y2, z2;
-            float r, g, b;
+            task.type = RdbTaskType::TRIANGLE;
+            auto& t = task.rdbTriangle;
             int32_t group;
-            if (sscanf(token, "T %f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
-                &x0, &y0, &z0,
-                &x1, &y1, &z1,
-                &x2, &y2, &z2,
-                &r, &g, &b,
-                &group) == 10)
+            if (sscanf(token, "T %f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
+                &t.x0, &t.y0, &t.z0,
+                &t.x1, &t.y1, &t.z1,
+                &t.x2, &t.y2, &t.z2,
+                &t.r, &t.g, &t.b,
+                &t.group) == 13)
             {
-                printf("TRI (%f,%f,%f) (%f,%f,%f) (%f,%f,%f)\n",
-                    x0, y0, z0, x1, y1, z1, x2, y2, z2);
+                g_rdbTasks.push(task);
             }
         }
         break;
@@ -491,16 +484,16 @@ public:
     Socket socket_;
 
     // 描画範囲の百分率
-    int32_t pointDrawRange_[2] = { 0, 100 };
-    int32_t lineDrawRange_[2] = { 0, 100 };
-    int32_t triDrawRange_[2] = { 0, 100 };
+    std::array<int32_t, 2> pointDrawRange_ = { 0, 100 };
+    std::array<int32_t, 2> lineDrawRange_ = { 0, 100 };
+    std::array<int32_t, 2> triDrawRange_ = { 0, 100 };
 
 public:
     Window()
     {
         //
         socket_.init();
-        socket_.setOnConnect([this](){ clear(); });
+        socket_.setOnConnect([this](){ clearGeometory(); });
         // TODO: 呼び出しタイミングはこれでよいのか？
         glewInit();
         // Setup window_
@@ -650,17 +643,25 @@ public:
     {
         AABB sceneBound;
         //
-        for (int32_t i = 0; i < points_.size(); ++i)
+        for (int32_t i = pointDrawRange_[0]; i < pointDrawRange_[1]; ++i)
         {
             auto& p = points_[i];
             sceneBound.add(glm::vec3(p.x, p.y, p.z));
         }
         //
-        for (int32_t i = 0; i < lines_.size(); ++i)
+        for (int32_t i = lineDrawRange_[0]; i < lineDrawRange_[1]; ++i)
         {
             auto& l = lines_[i];
             sceneBound.add(glm::vec3(l.x0, l.y0, l.z0));
             sceneBound.add(glm::vec3(l.x1, l.y1, l.z1));
+        }
+        //
+        for (int32_t i = triDrawRange_[0]; i < triDrawRange_[1]; ++i)
+        {
+            auto& t = triangles_[i];
+            sceneBound.add(glm::vec3(t.x0, t.y0, t.z0));
+            sceneBound.add(glm::vec3(t.x1, t.y1, t.z1));
+            sceneBound.add(glm::vec3(t.x2, t.y2, t.z2));
         }
         //
         camera_.setTarget(sceneBound.center());
@@ -670,20 +671,29 @@ public:
         camera_.setDistance(distance);
     }
     //
-    void clear()
+    void clearGeometory()
     {
-        labelToGroup.clear();
         points_.clear();
         lines_.clear();
         triangles_.clear();
     }
+    // 保持するジオメトリを表示しているものだけにする
+    void trimGeometory()
+    {
+        points_.trim(pointDrawRange_[0], pointDrawRange_[1]);
+        lines_.trim(lineDrawRange_[0], lineDrawRange_[1]);
+        triangles_.trim(triDrawRange_[0], triDrawRange_[1]);
+        pointDrawRange_ = {0, 100};
+        lineDrawRange_ = { 0, 100 };
+        triDrawRange_ = { 0, 100 };
+    }
     //
     void onDisconnect()
     {
-        clear();
+        clearGeometory();
     }
     //
-    void simpleWindow()
+    void drawToolWindow()
     {
         //
         ImGuiWindowFlags window_flags = 0;
@@ -707,28 +717,22 @@ public:
             // -------------------------------------------------------
             ImGui::Separator();
             ImGui::Text("Basic");
-            ImGui::AlignTextToFramePadding();
-            ImGui::Text("Accept ");
-            ImGui::SameLine();
-            static bool accept = false;
-            ImGui::Checkbox("##ACCEPT_CHECKBOX", &accept);
-            ImGui::SameLine();
             if (ImGui::Button("Clear"))
             {
-                clear();
+                clearGeometory();
             }
             ImGui::SameLine();
-            if (ImGui::Button("FIT_CAMERA"))
+            if (ImGui::Button("Trim"))
+            {
+                trimGeometory();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Fit"))
             {
                 fitCamrera();
             }
             ImGui::SameLine();
-            static char portNoBuffer[64] = "";
-            ImGui::AlignTextToFramePadding();
-            ImGui::Text("Port   ");
-            ImGui::SetNextItemWidth(120);
-            ImGui::SameLine();
-            ImGui::InputText("##PORT_NO", portNoBuffer, 64, ImGuiInputTextFlags_CharsDecimal);
+            ImGui::ColorEdit4("BG##3", (float*)&bgColor_, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
             //
             ImGui::AlignTextToFramePadding();
             ImGui::Text("Point Size  ");
@@ -758,7 +762,7 @@ public:
             }
             ImGui::SetNextItemWidth(300);
             ImGui::SameLine();
-            ImGui::SliderInt2("##POINT_DRAW_RANGE", pointDrawRange_, 0, 100);
+            ImGui::SliderInt2("##POINT_DRAW_RANGE", pointDrawRange_.data(), 0, 100);
             //
             ImGui::AlignTextToFramePadding();
             ImGui::Text("Line     %8d", lines_.size());
@@ -771,7 +775,7 @@ public:
             }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(300);
-            ImGui::SliderInt2("##LINE_DRAW_RANGE", lineDrawRange_, 0, 100);
+            ImGui::SliderInt2("##LINE_DRAW_RANGE", lineDrawRange_.data(), 0, 100);
             //
             ImGui::AlignTextToFramePadding();
             ImGui::Text("Triangle %8d", triangles_.size());
@@ -784,8 +788,10 @@ public:
             }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(300);
-            ImGui::SliderInt2("##TRIANGLE_DRAW_RANGE", triDrawRange_, 0, 100);
+            ImGui::SliderInt2("##TRIANGLE_DRAW_RANGE", triDrawRange_.data(), 0, 100);
             //
+            // -------------------------------------------------------
+            
         }
         ImGui::End();
     }
@@ -839,6 +845,31 @@ public:
             glVertex3f(line.x1, line.y1, line.z1);
         }
         glEnd();
+        // triangles
+        glBegin(GL_LINES);
+        const int32_t triDrawBegin = triDrawRange_[0] * triangles_.size() / 100;
+        const int32_t triDrawEnd = triDrawRange_[1] * triangles_.size() / 100;
+        for (int32_t i = triDrawBegin; i < triDrawEnd; ++i)
+        {
+            const RdbTriangle& tri = triangles_[i];
+            //
+            glColor4f(tri.r, tri.g, tri.b, 1.0f);
+            glVertex3f(tri.x0, tri.y0, tri.z0);
+            glColor4f(tri.r, tri.g, tri.b, 1.0f);
+            glVertex3f(tri.x1, tri.y1, tri.z1);
+            //
+            glColor4f(tri.r, tri.g, tri.b, 1.0f);
+            glVertex3f(tri.x1, tri.y1, tri.z1);
+            glColor4f(tri.r, tri.g, tri.b, 1.0f);
+            glVertex3f(tri.x2, tri.y2, tri.z2);
+            //
+            glColor4f(tri.r, tri.g, tri.b, 1.0f);
+            glVertex3f(tri.x2, tri.y2, tri.z2);
+            glColor4f(tri.r, tri.g, tri.b, 1.0f);
+            glVertex3f(tri.x0, tri.y0, tri.z0);
+        }
+        glEnd();
+        //
         glFlush();
     }
     //
@@ -846,14 +877,10 @@ public:
     {
         bool show_demo_window = true;
         bool show_another_window = false;
-        ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.1f, 1.00f);
-        // TODO: リングバッファーにする
-        
         // Main loop
         while (!glfwWindowShouldClose(window_))
         {
             // 全ての積まれているタスクを描画に変換する
-            bool hasClear = false;
             while (!g_rdbTasks.empty())
             {
                 RdbTask task;
@@ -861,9 +888,6 @@ public:
                 {
                     switch (task.type)
                     {
-                    case RdbTaskType::CLEAR:
-                        hasClear = true;
-                        break;
                     case RdbTaskType::POINT:
                         points_.add(task.rdbPoint);
                         break;
@@ -872,69 +896,35 @@ public:
                         break;
                     case RdbTaskType::TRIANGLE:
                         triangles_.add(task.rdbTriangle);
-                        triDrawRange_[1] = triangles_.size();
                         break;
                     }                    
                 }
             }
-            if (hasClear)
-            {
-                labelToGroup.clear();
-                points_.clear();
-                lines_.clear();
-                triangles_.clear();
-            }
-
-            RdbLabel label;
-            while (g_rdbLabels.try_pop(label))
-            {
-                labelToGroup[label.label] = label.group;
-            }
-
-
-            // Poll and handle events (inputs, window_ resize, etc.)
-            // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
-            // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application.
-            // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application.
-            // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+            //
             glfwPollEvents();
-
-            // Start the Dear ImGui frame
+            //
             ImGui_ImplOpenGL2_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
             //
             camera_.update();
-
             // GUI
-            simpleWindow();
-            ImGui::ShowDemoWindow(&show_demo_window);
-
+            drawToolWindow();
+            //ImGui::ShowDemoWindow(&show_demo_window);
             // Rendering
             ImGui::Render();
             int display_w, display_h;
             glfwGetFramebufferSize(window_, &display_w, &display_h);
             glViewport(0, 0, display_w, display_h);
-            glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
+            glClearColor(bgColor_.x, bgColor_.y, bgColor_.z, bgColor_.w);
             glClear(GL_COLOR_BUFFER_BIT);
-
             //
             glPushMatrix();
             drawLine();
             glPopMatrix();
-
-            // If you are using this code with non-legacy OpenGL header/contexts (which you should not, prefer using imgui_impl_opengl3.cpp!!), 
-            // you may need to backup/reset/restore current shader using the commented lines below.
-            //GLint last_program; 
-            //glGetIntegerv(GL_CURRENT_PROGRAM, &last_program);
-            //glUseProgram(0);
-            ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
-            //glUseProgram(last_program);
             //
-            //camera_.viewMatrix();
-            
-            
-
+            ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+            //
             glfwMakeContextCurrent(window_);
             glfwSwapBuffers(window_);
         }
@@ -945,14 +935,15 @@ private:
         fprintf(stderr, "Glfw Error %d: %s\n", error, description);
     }
 private:
-    std::unordered_map<std::string, int32_t> labelToGroup;
     RingBuffer<RdbPoint> points_;
     RingBuffer<RdbLine> lines_;
     RingBuffer<RdbTriangle> triangles_;
-    float pointSize_ = 1.0f;
-    float lineWidth_ = 1.0f;
+    float pointSize_ = 1.5f;
+    float lineWidth_ = 1.5f;
     //
     const int32_t GUI_WIDTH = 500;
+    //
+    ImVec4 bgColor_ = ImVec4(0.1f, 0.1f, 0.1f, 1.00f);
 };
 
 //
@@ -960,4 +951,5 @@ int main()
 {
     Window window;
     window.update();
+    return 0;
 }

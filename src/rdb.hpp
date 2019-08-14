@@ -3,9 +3,6 @@
 
 #include <cstdint>
 //
-void rdbClear();
-void rdbLabel(
-    int32_t group, const char* label);
 void rdbPoint(
     float x, float y, float z, 
     float r = 1.0f, float g = 1.0f, float b = 1.0f,
@@ -30,7 +27,6 @@ void rdbLine(
 //
 enum class RdbTaskType : int32_t
 {
-    LABEL,
     POINT,
     LINE,
     TRIANGLE,
@@ -41,11 +37,6 @@ struct RdbTask
     RdbTaskType type;
     union
     {
-        struct
-        {
-            const char* label;
-            int32_t group;
-        }rdbLabel;
         struct
         {
             float x;
@@ -107,12 +98,11 @@ std::thread rdbMainThread;
 
 //
 void rdbInitCheck();
-void rdb_printf(const char* fmt, ...);
+void rdbPrintf(const char* fmt, ...);
 void rdbMain();
-void rdbExit();
 
 //
-void rdb_printf(const char* fmt, ...)
+void rdbPrintf(const char* fmt, ...)
 {
     //
     rdbInitCheck();
@@ -125,7 +115,6 @@ void rdb_printf(const char* fmt, ...)
     //
     size_t sended = ::send(rdbContext.fd, buffer, bytesToSend, 0);
     // TODO: -1が帰ったらもう何も送らない状態にする
-    //
     //printf("%s,[%d]", buffer, sended);
 }
 
@@ -145,23 +134,17 @@ void rdbMain()
         {
             switch (task.type)
             {
-            case RdbTaskType::LABEL:
-            {
-                const auto& t = task.rdbLabel;
-                rdb_printf("E %d,%s\n", t.group, t.label);
-            }
-            break;
             case RdbTaskType::POINT:
             {
                 const auto& t = task.rdbPoint;
-                rdb_printf("P %f,%f,%f,%f,%f,%f,%d\n",
+                rdbPrintf("P %f,%f,%f,%f,%f,%f,%d\n",
                     t.x, t.y, t.z, t.r, t.g, t.b, t.group);
             }
             break;
             case RdbTaskType::LINE:
             {
                 const auto& t = task.rdbLine;
-                rdb_printf("L %f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
+                rdbPrintf("L %f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
                     t.x0, t.y0, t.z0,
                     t.x1, t.y1, t.z1,
                     t.r0, t.g0, t.b0,
@@ -172,7 +155,7 @@ void rdbMain()
             case RdbTaskType::TRIANGLE:
             {
                 const auto& t = task.rdbTriangle;
-                rdb_printf("T %f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
+                rdbPrintf("T %f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d\n",
                     t.x0, t.y0, t.z0,
                     t.x1, t.y1, t.z1,
                     t.x2, t.y2, t.z2,
@@ -183,12 +166,6 @@ void rdbMain()
             }
         }
     }
-}
-//
-void rdbExit()
-{
-    rdbMainThread.join();
-    ::closesocket(rdbContext.fd);
 }
 //
 void rdbInitCheck()
@@ -204,23 +181,16 @@ void rdbInitCheck()
             serv_name.sin_addr.s_addr = ::htonl(0x7F000001L);
             serv_name.sin_port = ::htons(10000);
             ::connect(rdbContext.fd, (struct sockaddr*) & serv_name, sizeof(serv_name));
-            ::atexit(rdbExit); // TODO: 普通にグローバル解放で使うようにする
-
+            ::atexit([]()
+                {
+                    rdbMainThread.join();
+                    ::closesocket(rdbContext.fd);
+                });
             //
             rdbMainThread = std::thread([]() {rdbMain(); });
         });
 }
 
-//
-void rdbLabel(int32_t group, const char* label)
-{
-    rdbInitCheck();
-    RdbTask task;
-    task.rdbLabel.label = label;
-    task.rdbLabel.group = group;
-    task.type = RdbTaskType::LABEL;
-    rdbTasks.push(task);
-}
 //
 void rdbPoint(
     float x, float y, float z,
