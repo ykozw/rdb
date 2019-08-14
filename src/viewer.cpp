@@ -489,6 +489,12 @@ public:
     int32_t windowHeight_;
     Camera camera_;
     Socket socket_;
+
+    // 描画範囲の百分率
+    int32_t pointDrawRange_[2] = { 0, 100 };
+    int32_t lineDrawRange_[2] = { 0, 100 };
+    int32_t triDrawRange_[2] = { 0, 100 };
+
 public:
     Window()
     {
@@ -716,6 +722,7 @@ public:
             {
                 fitCamrera();
             }
+            ImGui::SameLine();
             static char portNoBuffer[64] = "";
             ImGui::AlignTextToFramePadding();
             ImGui::Text("Port   ");
@@ -738,8 +745,8 @@ public:
             // -------------------------------------------------------
             ImGui::Separator();
             ImGui::Text("Filter");
-            ImGui::Text("            Used  Max      Lower    Upper");
-            
+            ImGui::Text("            Used  Max       Low                  High");
+            //
             ImGui::AlignTextToFramePadding();
             ImGui::Text("Point    %8d", points_.size());
             ImGui::SameLine();
@@ -749,12 +756,10 @@ public:
             {
                 points_.setRingSize(pointRingMax);
             }
-            ImGui::SameLine(); 
-            ImGui::SetNextItemWidth(120);
-            static int pointRange_[2] = { -1, -1 };
-            ImGui::DragInt2("##POINT_RANGE", pointRange_, 1, -1, 255);
+            ImGui::SetNextItemWidth(300);
+            ImGui::SameLine();
+            ImGui::SliderInt2("##POINT_DRAW_RANGE", pointDrawRange_, 0, 100);
             //
-            static int lineRange[2] = { -1, -1 };
             ImGui::AlignTextToFramePadding();
             ImGui::Text("Line     %8d", lines_.size());
             ImGui::SameLine();
@@ -765,10 +770,9 @@ public:
                 lines_.setRingSize(lineRingMax);
             }
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(120);
-            ImGui::DragInt2("##LINE_RANGE", lineRange, 1, -1, 64);
+            ImGui::SetNextItemWidth(300);
+            ImGui::SliderInt2("##LINE_DRAW_RANGE", lineDrawRange_, 0, 100);
             //
-            static int triangleRange[2] = { -1, -1 };
             ImGui::AlignTextToFramePadding();
             ImGui::Text("Triangle %8d", triangles_.size());
             ImGui::SameLine();
@@ -779,8 +783,8 @@ public:
                 triangles_.setRingSize(triangleRingMax);
             }
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(120);
-            ImGui::DragInt2("##TRIANGLE_RANGE", triangleRange, 1, -1, 255);
+            ImGui::SetNextItemWidth(300);
+            ImGui::SliderInt2("##TRIANGLE_DRAW_RANGE", triDrawRange_, 0, 100);
             //
         }
         ImGui::End();
@@ -813,7 +817,9 @@ public:
         glLineWidth(lineWidth_);
         // points
         glBegin(GL_POINTS);
-        for (int32_t i = 0; i < points_.size(); ++i)
+        const int32_t pointsDrawBegin = pointDrawRange_[0] * points_.size() / 100;
+        const int32_t pointsDrawEnd = pointDrawRange_[1] * points_.size() / 100;
+        for (int32_t i = pointsDrawBegin; i < pointsDrawEnd; ++i)
         {
             const RdbPoint& point = points_[i];
             glColor4f(point.r, point.g, point.b, 1.0f);
@@ -822,7 +828,9 @@ public:
         glEnd();
         // lines
         glBegin(GL_LINES);
-        for (int32_t i = 0; i < lines_.size(); ++i)
+        const int32_t linesDrawBegin = lineDrawRange_[0] * lines_.size() / 100;
+        const int32_t linesDrawEnd = lineDrawRange_[1] * lines_.size() / 100;
+        for (int32_t i = linesDrawBegin; i < linesDrawEnd; ++i)
         {
             const RdbLine& line = lines_[i];
             glColor4f(line.r0, line.g0, line.b0, 1.0f);
@@ -864,6 +872,7 @@ public:
                         break;
                     case RdbTaskType::TRIANGLE:
                         triangles_.add(task.rdbTriangle);
+                        triDrawRange_[1] = triangles_.size();
                         break;
                     }                    
                 }
@@ -943,10 +952,8 @@ private:
     float pointSize_ = 1.0f;
     float lineWidth_ = 1.0f;
     //
-    const int32_t GUI_WIDTH = 400;
+    const int32_t GUI_WIDTH = 500;
 };
-
-
 
 //
 int main()
