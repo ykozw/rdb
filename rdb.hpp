@@ -101,6 +101,7 @@ public:
 }rdbContext;
 
 std::thread rdbMainThread;
+std::atomic<bool> rdbFinishFlag = false;
 
 //
 void rdbInitCheck();
@@ -127,7 +128,7 @@ void rdbPrintf(const char* fmt, ...)
 //
 void rdbMain()
 {
-    while (true)
+    while (!rdbFinishFlag)
     {
         if (rdbTasks.empty())
         {
@@ -189,6 +190,7 @@ void rdbInitCheck()
             ::connect(rdbContext.fd, (struct sockaddr*) & serv_name, sizeof(serv_name));
             ::atexit([]()
                 {
+                    rdbFinishFlag = true;
                     rdbMainThread.join();
                     ::closesocket(rdbContext.fd);
                 });
