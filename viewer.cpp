@@ -806,10 +806,10 @@ public:
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
         const double aspect = double(windowWidth_  - GUI_WIDTH) / double(windowHeight_);
-        const float fovy = 3.1415f / 1.2f;
+        const float fovyInDegree = 60.0f;
         const float nz = 0.01f;
         const float fz = 1000.0f;
-        gluPerspective(fovy, aspect, nz, fz);
+        gluPerspective(fovyInDegree, aspect, nz, fz);
 
         // MV行列設定
         glMatrixMode(GL_MODELVIEW);
